@@ -1,0 +1,11 @@
+[project]
+name = "spatial-polygon-merging"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.2.2",
+    "tifffile>=2026.3.3",
+    "ultralytics>=8.4.52",
+]
