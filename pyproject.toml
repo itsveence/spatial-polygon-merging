@@ -8,5 +8,16 @@ dependencies = [
     "imagecodecs>=2026.3.6",
     "python-dotenv>=1.2.2",
     "tifffile>=2026.3.3",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
     "ultralytics>=8.4.52",
 ]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu124" }]
+torchvision = [{ index = "pytorch-cu124" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
