@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "imagecodecs>=2026.3.6",
+    "pulp>=3.3.1",
     "python-dotenv>=1.2.2",
+    "rasterio>=1.4.4",
+    "shapely>=2.1.2",
     "tifffile>=2026.3.3",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
