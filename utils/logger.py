@@ -1,10 +1,8 @@
 import logging
 from datetime import datetime
 import time
-from dotenv import load_dotenv
-import os
+from config import LOGGING_LEVEL
 
-load_dotenv()
 
 
 class AnsiColorCodes:
@@ -58,13 +56,13 @@ class ColoredFormatter(logging.Formatter):
 def setup_logging():
     """Sets up the logging configuration."""
     logger = logging.getLogger()
-    if os.getenv("LOGGING_LEVEL", "").upper() == "DEBUG":
+    if LOGGING_LEVEL == "DEBUG":
         logger.setLevel(logging.DEBUG)
     else:
         logger.setLevel(logging.INFO)
 
     console_handler = logging.StreamHandler()
-    if os.getenv("LOGGING_LEVEL", "").upper() == "DEBUG":
+    if LOGGING_LEVEL == "DEBUG":
         console_handler.setLevel(logging.DEBUG)
     else:
         console_handler.setLevel(logging.INFO)
