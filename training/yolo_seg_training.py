@@ -1,3 +1,8 @@
+import os
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+import warnings
+warnings.filterwarnings("ignore")
+
 from ultralytics import YOLO
 from config import PROJECT_NAME, MODEL
 
