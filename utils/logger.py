@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 import time
-from config import LOGGING_LEVEL
+from settings import LOGGING_LEVEL
 
 
 

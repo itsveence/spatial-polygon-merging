@@ -1,14 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
 from shapely import MultiPolygon, Polygon, STRtree, make_valid
-from spm.predictions import SPMPrediction
+from spm.config import SPMConfig, SPMPrediction
 from utils.helpers import time_it
+from utils.logger import logger
 
-@dataclass
-class SPMConfig:
-    """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
-    tau_iou: float = 0.2
-    tau_dist: float = 5.0
 
 class SpatialPolygonMerger:
     def __init__(self, config: SPMConfig = SPMConfig()):
@@ -18,6 +13,7 @@ class SpatialPolygonMerger:
 
     def index(self, annotations: SPMPrediction):
         """Creates a spatial index (STRtree) for the given list of polygons."""
+        logger.info("Indexing polygons for merging")
         self.annotations = annotations
         self.tree = STRtree(self.annotations.polygons)
 
@@ -29,15 +25,15 @@ class SpatialPolygonMerger:
     
     def should_merge(self, poly_i, poly_j):
         """
-        Merges two polygons that are within the distance threshold.
+        Merges two polygons that intersect or are within the distance threshold.
         """
         a = self.annotations.polygons[poly_i]
         b = self.annotations.polygons[poly_j]
-        dist = a.distance(b)
-        if dist > self.config.tau_dist:
-            return False
-        else:
+        
+        if a.intersects(b):
             return True
+        
+        return a.distance(b) <= self.config.tau_dist
     
     def merge_polygons(self, polygons: list[Polygon], gap_fill_distance: float = 5.0) -> tuple[Polygon, list[float, float, float, float]]:
         """
@@ -68,7 +64,13 @@ class SpatialPolygonMerger:
         return merged, [minx, miny, maxx, maxy]
     
     def find_neighbors(self, poly_idx: int) -> list[int]:
-        """Find all chainable neighbors of a polygon based on distance and IoU thresholds."""
+        """
+        Find all chainable neighbors of a polygon based on distance and IoU thresholds.
+        Args:
+            poly_idx (int): Index of the polygon in self.annotations.polygons for which to find neighbors.
+        Returns:
+            list[int]: List of indices of neighboring polygons that should be merged with the given polygon.
+            """
         polygon = self.annotations.polygons[poly_idx]
         neighbors = self.query(polygon)
         neighbors_to_merge = set([poly_idx])  # Start with the original polygon
@@ -89,15 +91,27 @@ class SpatialPolygonMerger:
         return list(neighbors_to_merge)
 
     @time_it
-    def merge(self) -> SPMPrediction:
-        """Merges polygons based on IoU and distance thresholds."""
+    def merge(self, poly_idxs: list[int]=None) -> tuple[SPMPrediction]:
+        """
+        Merges polygons based on distance thresholds.
+        Args:
+            poly_idxs (list[int], optional): Optional list of polygon indices to consider for merging. If None, considers all polygons.
+        Returns:
+            tuple[SPMPrediction]: A tuple containing the merged annotations and the unmerged annotations.
+        """
         if self.annotations is None:
             raise ValueError("No polygons to merge. Call index() first.")
         
         merged_annotations = SPMPrediction()
-        polygon_index = set(i for i in range(len(self.annotations.polygons)))  # Keep track of original indices
+        unmerged_annotations = SPMPrediction()
+        if poly_idxs is None:
+            poly_idxs = list(range(len(self.annotations.polygons)))
+        polygon_index = set(poly_idxs)  # Keep track of original indices
+        undermerged_idxs = list(range(len(self.annotations.polygons)))
+
         while polygon_index:
             idx = polygon_index.pop()
+            undermerged_idxs.remove(idx)
             neighbors = self.find_neighbors(idx)
             if idx in neighbors:
                 neighbors.remove(idx)  # Remove self from neighbors
@@ -112,10 +126,33 @@ class SpatialPolygonMerger:
                     polygons_to_merge.append(neighbor_idx)
                     avg_score = (avg_score + self.annotations.confidences[neighbor_idx]) / 2
                     polygon_index.remove(neighbor_idx)
+                    undermerged_idxs.remove(neighbor_idx)
             merged_polygon, bbox = self.merge_polygons([self.annotations.polygons[i] for i in polygons_to_merge])
             if not merged_polygon:
                 continue  # Skip if we couldn't merge into a single polygon
-            merged_annotations.add_annotation(polygon=merged_polygon, class_id=self.annotations.class_ids[idx], confidence=avg_score, bbox=bbox)
-
+            merged_annotations.add_annotation(
+                polygon=merged_polygon, 
+                class_id=self.annotations.class_ids[idx],
+                name=self.annotations.names[idx],
+                confidence=avg_score, 
+                bbox=bbox)
         
-        return merged_annotations
+        # Get unmerged annotations that were not part of any merge
+        for idx in undermerged_idxs:
+            unmerged_annotations.add_annotation(
+                polygon=self.annotations.polygons[idx],
+                class_id=self.annotations.class_ids[idx],
+                name=self.annotations.names[idx],
+                confidence=self.annotations.confidences[idx],
+                bbox=self.annotations.bboxes[idx]
+            )
+
+        combined_annotations = SPMPrediction(
+            polygons=merged_annotations.polygons + unmerged_annotations.polygons,
+            class_ids=merged_annotations.class_ids + unmerged_annotations.class_ids,
+            confidences=merged_annotations.confidences + unmerged_annotations.confidences,
+            bboxes=merged_annotations.bboxes + unmerged_annotations.bboxes,
+            names=merged_annotations.names + unmerged_annotations.names
+        )
+        
+        return combined_annotations

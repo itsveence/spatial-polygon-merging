@@ -1,0 +1,14 @@
+from dataclasses import dataclass, field
+
+@dataclass
+class ModelConfig:
+    """Configuration for the model."""
+    model_path: str = field(default_factory=str)
+    device: str = "cuda"  # or "cpu"
+    batch_size: int = 4
+    confidence_threshold: float = 0.25
+    iou_threshold: float = 0.5
+
+    # Inference parameters
+    tile_size: int = 3000
+    overlap: int = 300

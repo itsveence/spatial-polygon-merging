@@ -2,7 +2,13 @@ from pathlib import Path
 import numpy as np
 import cv2
 import tifffile as tiff
-from typing import Union
+import rasterio
+from typing import Generator, Union
+
+import torch
+from spm.config import SPMPrediction
+from spm.spm import SpatialPolygonMerger
+from spm.utils import effective_overlap, is_border_candidate
 from utils.logger import logger
 from utils.helpers import time_it
 
@@ -22,8 +28,8 @@ def tiff_to_png(tiff_path: Path, png_path: Path) -> None:
     except Exception as e:
         logger.error(f"Failed to convert {tiff_path} to PNG: {e}")
 
-def mask_to_polygon(mask_path: Path, min_area: int = 20, normalize: bool = True) -> list[list[Union[float, int]]]:
-    """COnverts binary mask to list of polygons."""
+def binary_mask_to_polygon(mask_path: Path, min_area: int = 20, normalize: bool = True) -> list[list[Union[float, int]]]:
+    """Converts binary mask to list of polygons."""
     mask = tiff.imread(mask_path)
     logger.debug(f"Loaded mask from {mask_path} with shape {mask.shape} and dtype {mask.dtype}")
     if mask.ndim == 3:
@@ -68,7 +74,7 @@ def mask_to_polygon(mask_path: Path, min_area: int = 20, normalize: bool = True)
 def mask_to_txt(mask_path: Path, txt_path: Path, min_area: int = 20) -> None:
     """Converts mask images to YOLO text format."""
     try:
-        polygons = mask_to_polygon(mask_path, min_area=min_area, normalize=True)
+        polygons = binary_mask_to_polygon(mask_path, min_area=min_area, normalize=True)
         lines = []
         for poly in polygons:
             line = f"{0} " + " ".join(f"{p:.6f}" for p in poly)
@@ -78,15 +84,62 @@ def mask_to_txt(mask_path: Path, txt_path: Path, min_area: int = 20) -> None:
     except Exception as e:
         logger.error(f"Failed to convert {mask_path} to TXT: {e}")
 
-if __name__ == "__main__":    # Example usage
-    tiff_file = Path("data/test/image/0.tif")
-    output_dir = Path("bin/tmp/data/test/image")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    png_dir = output_dir / (tiff_file.stem + ".png")
-    logger.info(f"Converting {tiff_file} to png format at {png_dir}")
-    tiff_to_png(tiff_file, png_dir)
+def read_tile(src, top, left, bottom, right):
+    """Reads a tile from the raster source."""
+    height = bottom - top
+    width = right - left
+    window = rasterio.windows.Window.from_slices((top, bottom), (left, right))
 
-    tiff_label = Path("data/test/label/2_10.tif")
-    txt_dir = output_dir / (tiff_label.stem + ".txt")
-    logger.info(f"Converting {tiff_label} to txt format at {txt_dir}")
-    mask_to_txt(tiff_label, txt_dir)
+    tile = src.read(
+        window=window,
+        boundless=True,
+        fill_value=0,
+        masked=True,
+        out_shape=(src.count, height, width),
+    )
+
+    img_np = np.asarray(tile.filled(0)).astype(np.uint8)
+    img_rgb = img_np[:3].transpose(1, 2, 0)
+    img_bgr = img_rgb[..., ::-1]  # flip to BGR for OpenCV/Ultralytics
+    return img_bgr
+
+
+def stream_tiles_by_batch(src: rasterio.DatasetReader, tile_size: int = 640, batch_size: int = 4, overlap: int = 0) -> Generator[tuple[list[np.ndarray], list[tuple[int, int]]], None, None]:
+    """Streams image tiles in batches."""
+    width, height = src.width, src.height
+
+    #If the tile size is larger than the image height or width, then return the whole image as one tile, with the 4 coordinates
+    if tile_size >= min(height, width):
+        logger.warning(f"Tile size {tile_size} is larger than image dimensions {height}x{width}. Returning the whole image as one tile.")
+        img = src.read().transpose(1, 2, 0)  # Read the whole image
+        img_bgr = img[..., ::-1]  # flip to BGR for OpenCV/Ultralytics
+        yield [img_bgr], [(0, 0, height, width)]  # Yield the whole image as one tile with its coordinates
+        return
+    
+    tiles = []
+    coordinates = []
+    step = tile_size - overlap
+    for top in range(0, height - tile_size + step, step):
+        bottom = top + tile_size
+        # Adjust for boundaries: if the tile goes beyond the image height, shift it upwards while keeping the tile size constant
+        bottom = min(bottom, height)
+        top = max(0, bottom - tile_size)
+
+        for left in range(0, width - tile_size + step, step):
+            right = left + tile_size
+            # Adjust for boundaries: if the tile goes beyond the image width, shift it left while keeping the tile size constant
+            right = min(right, width)
+            left = max(0, right - tile_size)
+
+            # Read the tile data and append to the batch along with its coordinates
+            tile = read_tile(src, top, left, bottom, right)
+            tiles.append(tile)
+            coordinates.append((top, left, bottom, right))
+
+            # Once we have enough tiles for a batch, yield them and reset the lists
+            if len(tiles) == batch_size:
+                yield tiles, coordinates
+                tiles = []
+                coordinates = []
+    if tiles:
+        yield tiles, coordinates  # Yield remaining tiles if any

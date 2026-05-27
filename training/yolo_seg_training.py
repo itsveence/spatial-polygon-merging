@@ -4,7 +4,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from ultralytics import YOLO
-from config import PROJECT_NAME, MODEL
+from settings import PROJECT_NAME, MODEL
 
 def train(data: str, epochs: int = 100, imgsz: int = 640, batch: int = 4, resume: bool = False, model_path: str = None) -> None:
     # Load a model
@@ -21,6 +21,6 @@ def train(data: str, epochs: int = 100, imgsz: int = 640, batch: int = 4, resume
         batch=batch,
         name=PROJECT_NAME, 
         exist_ok=True,
-        resume=resume
+        resume=resume,
         )
     

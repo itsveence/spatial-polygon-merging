@@ -49,12 +49,12 @@ def effective_overlap(
     return max(side_overlaps) if side_overlaps else 0
 
 
-def is_index_candidate(
+def is_border_candidate(
         bbox: tuple[float, float, float, float],
         tile_size: int,
         overlap: int
         ) -> bool:
-    """Determines if a bounding box is a border candidate for indexing.
+    """Determines if a bounding box is a border candidate.
 
     ``bbox`` must be in tile-local coordinates (as produced by a model run on the
     tile). A bbox is a border candidate if it lies within ``overlap`` of a tile
@@ -75,35 +75,12 @@ def is_index_candidate(
 
     return near_left or near_top or near_right or near_bottom
 
-def _ensure_valid(poly: Polygon) -> Polygon:
-        """
-        Return a valid Shapely geometry, repairing self-intersections if needed.
-        make_valid may return a GeometryCollection for badly degenerate inputs,
-        so we extract only Polygon/MultiPolygon parts.
-        """
-        if poly.is_valid:
-            return poly
-        fixed = make_valid(poly)
-        # make_valid can produce GeometryCollection — keep only area-bearing parts
-        if fixed.geom_type == "GeometryCollection":
-            polys = []
-            for g in fixed.geoms:
-                if isinstance(g, MultiPolygon):
-                    polys.extend(g.geoms)
-                else:
-                    polys.append(g)
-            if not polys:
-                return Polygon()  # empty sentinel — will be ignored downstream
-            fixed = unary_union(polys)
-            fixed = fixed.buffer(5.0).buffer(-5.0)
-        return fixed
-
 def xy_mask_to_polygon(mask: list[tuple[float, float]]) -> Polygon:
     """Converts a list of (x, y) coordinates representing a mask into a Shapely Polygon."""
     polygon = Polygon(mask)
     return sanitize_polygon(polygon)
 
-def sanitize_polygon(poly: Polygon, simplify_tolerance: float = 5, angle_threshold_deg: float = 5.0) -> Polygon | None:
+def sanitize_polygon(poly: Polygon, simplify_tolerance: float = 5) -> Polygon | None:
     """
     Fix common GEOS topology issues:
     - Duplicate/zero-length vertices
@@ -150,31 +127,4 @@ def sanitize_polygon(poly: Polygon, simplify_tolerance: float = 5, angle_thresho
     if poly.is_empty or not isinstance(poly, Polygon):
         return None
     
-    # Turn-angle pruning
-    coords = list(poly.exterior.coords[:-1])  # drop the closing duplicate
-    n = len(coords)
-    if n < 3:
-        return poly
-
-    thresh = math.radians(angle_threshold_deg)
-    keep = []
-    for i in range(n):
-        a = np.array(coords[(i - 1) % n])
-        b = np.array(coords[i])
-        c = np.array(coords[(i + 1) % n])
-        ab = b - a
-        bc = c - b
-        lab, lbc = np.linalg.norm(ab), np.linalg.norm(bc)
-        if lab < 1e-9 or lbc < 1e-9:
-            continue  # degenerate zero-length edge — skip
-        cos_t = np.clip(np.dot(ab, bc) / (lab * lbc), -1.0, 1.0)
-        # arccos gives the angle between consecutive edge vectors:
-        #   0°  → perfectly straight (collinear)   → prune
-        #   90° → right-angle corner               → keep
-        if np.arccos(cos_t) >= thresh:
-            keep.append(coords[i])
-
-    if len(keep) < 3:
-        return poly
-
-    return Polygon(keep)
+    return poly
