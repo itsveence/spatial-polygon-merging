@@ -49,24 +49,28 @@ def effective_overlap(
     return max(side_overlaps) if side_overlaps else 0
 
 
-def is_border_candidate(
+def is_overlap_candidate(
         bbox: tuple[float, float, float, float],
+        tile_x: int,
+        tile_y: int,
         tile_size: int,
-        overlap: int
+        overlap: int,
+        img_width: int = None,
+        img_height: int = None,
         ) -> bool:
-    """Determines if a bounding box is a border candidate.
+    """Determines if a bounding box is an overlap candidate.
 
     ``bbox`` must be in tile-local coordinates (as produced by a model run on the
-    tile). A bbox is a border candidate if it lies within ``overlap`` of a tile
+    tile). A bbox is an overlap candidate if it lies within ``overlap`` of a tile
     edge that has a neighboring tile on that side. Tiles at the image boundary
     have no neighbor on that side and are excluded from that edge.
     """
     x_min, y_min, x_max, y_max = bbox
 
-    near_left   = x_min <= overlap
-    near_top    = y_min <= overlap
-    near_right  = x_max >= (tile_size - overlap)
-    near_bottom = y_max >= (tile_size - overlap)
+    near_left   = tile_x != 0 and x_min <= overlap
+    near_top    = tile_y != 0 and y_min <= overlap
+    near_right  = (tile_x + tile_size) != img_width and x_max >= (tile_size - overlap)
+    near_bottom = (tile_y + tile_size) != img_height and y_max >= (tile_size - overlap)
 
     logger.debug(
         f"Checking bbox {bbox} size={tile_size} overlap={overlap}: "

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from shapely import MultiPolygon, Polygon, STRtree, make_valid
 from spm.config import SPMConfig, SPMPrediction
-from utils.helpers import time_it
+from utils.helpers import size_it, time_it
 from utils.logger import logger
 
 
@@ -90,6 +90,7 @@ class SpatialPolygonMerger:
 
         return list(neighbors_to_merge)
 
+    @size_it
     @time_it
     def merge(self, poly_idxs: list[int]=None) -> tuple[SPMPrediction]:
         """
@@ -144,7 +145,7 @@ class SpatialPolygonMerger:
                 class_id=self.annotations.class_ids[idx],
                 name=self.annotations.names[idx],
                 confidence=self.annotations.confidences[idx],
-                bbox=self.annotations.bboxes[idx]
+                bbox=self.annotations.bboxes[idx] 
             )
 
         combined_annotations = SPMPrediction(

@@ -5,10 +5,6 @@ import tifffile as tiff
 import rasterio
 from typing import Generator, Union
 
-import torch
-from spm.config import SPMPrediction
-from spm.spm import SpatialPolygonMerger
-from spm.utils import effective_overlap, is_border_candidate
 from utils.logger import logger
 from utils.helpers import time_it
 
