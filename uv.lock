@@ -261,6 +261,15 @@ wheels = [
 ]
 
 [[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.29.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1048,6 +1057,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pydeprecate"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/be/0f746a6cc399dc437d494c4240d25fa3151314dbd42cb1e89a5543fc1801/pydeprecate-0.7.0.tar.gz", hash = "sha256:925ee2e39f266bcd923c1abb76256da240e51ac04fc1ebb5490e32683770f9c4", size = 98242, upload-time = "2026-03-31T17:31:36.498Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/e6/42ece1260c287c5b376932d0d0fb776e5fe2a55ee58cf85d01ef97ca6c15/pydeprecate-0.7.0-py3-none-any.whl", hash = "sha256:b2baf35f82c06a22824029dd54ed763c7e8226f133893d15af4f9cf950a3b4d3", size = 63749, upload-time = "2026-03-31T17:31:35.023Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1416,6 +1434,7 @@ dependencies = [
     { name = "rasterio", version = "1.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "rasterio", version = "1.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "shapely" },
+    { name = "supervision" },
     { name = "tifffile", version = "2026.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "tifffile", version = "2026.5.15", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch" },
@@ -1430,10 +1449,32 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "rasterio", specifier = ">=1.4.4" },
     { name = "shapely", specifier = ">=2.1.2" },
+    { name = "supervision", specifier = ">=0.28.0" },
     { name = "tifffile", specifier = ">=2026.3.3" },
     { name = "torch", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu124" },
     { name = "torchvision", specifier = ">=0.21.0", index = "https://download.pytorch.org/whl/cu124" },
     { name = "ultralytics", specifier = ">=8.4.52" },
+]
+
+[[package]]
+name = "supervision"
+version = "0.28.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "pydeprecate" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "scipy" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/b0/2a3dcfd922d115a3dd76684927d9ed7576b36a8f696181bc334b04b0bef9/supervision-0.28.0.tar.gz", hash = "sha256:ae32536bba3239125311e3e91d7d1773cf8348da2f3ebe6836d90aa95b5908e5", size = 217542, upload-time = "2026-04-30T16:02:13.172Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/2c/c3a0b6b258e9c698409dcbadd3c40c847f0cf170218d539c9b45b0069c5c/supervision-0.28.0-py3-none-any.whl", hash = "sha256:d38cf041751110c2c55a5c1c5d09c97a110ee253afa580818313db8654eef40f", size = 251564, upload-time = "2026-04-30T16:02:11.119Z" },
 ]
 
 [[package]]
@@ -1533,6 +1574,18 @@ wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu124/torchvision-0.21.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:ec63c2ee792757492da40590e34b14f2fceda29050558c215f0c1f3b08149c0f", upload-time = "2025-01-30T01:04:30Z" },
     { url = "https://download-r2.pytorch.org/whl/cu124/torchvision-0.21.0%2Bcu124-cp313-cp313-linux_x86_64.whl", hash = "sha256:4b70acf3b4b96a0ceb1374116626c9bef9e8be016b57b1284e482260ca1896d6", upload-time = "2025-01-30T01:04:30Z" },
     { url = "https://download-r2.pytorch.org/whl/cu124/torchvision-0.21.0%2Bcu124-cp313-cp313-win_amd64.whl", hash = "sha256:8fcf55321b206de70ff8e01c884fa42e57a60b1cb749341b96e0f22c8a7c9ec7", upload-time = "2025-01-30T01:04:31Z" },
+]
+
+[[package]]
+name = "tqdm"
+version = "4.67.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598, upload-time = "2026-02-03T17:35:53.048Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/16/e1/3079a9ff9b8e11b846c6ac5c8b5bfb7ff225eee721825310c91b3b50304f/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf", size = 78374, upload-time = "2026-02-03T17:35:50.982Z" },
 ]
 
 [[package]]
