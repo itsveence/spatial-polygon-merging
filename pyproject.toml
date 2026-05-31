@@ -9,6 +9,7 @@ dependencies = [
     "pulp>=3.3.1",
     "python-dotenv>=1.2.2",
     "rasterio>=1.4.4",
+    "sahi>=0.11.36",
     "shapely>=2.1.2",
     "supervision>=0.28.0",
     "tifffile>=2026.3.3",

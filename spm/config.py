@@ -32,5 +32,5 @@ class SPMPrediction:
 @dataclass
 class SPMConfig:
     """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
-    tau_iou: float = 0.2
-    tau_dist: float = 5.0
+    tau_dist: float = 10.0 # Distance around geometry within which to query the STRtree for neighbors
+    rho_dist: float = 5.0 # Distance threshold for merging polygons (used in should_merge)

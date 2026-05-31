@@ -10,7 +10,8 @@ class SpatialPolygonMerger:
         self.config = config
         self.tree: STRtree = None
         self.annotations: SPMPrediction = None
-
+        
+    @time_it
     def index(self, annotations: SPMPrediction):
         """Creates a spatial index (STRtree) for the given list of polygons."""
         logger.info("Indexing polygons for merging")
@@ -33,7 +34,7 @@ class SpatialPolygonMerger:
         if a.intersects(b):
             return True
         
-        return a.distance(b) <= self.config.tau_dist
+        return a.distance(b) <= self.config.rho_dist
     
     def merge_polygons(self, polygons: list[Polygon], gap_fill_distance: float = 5.0) -> tuple[Polygon, list[float, float, float, float]]:
         """
@@ -43,22 +44,13 @@ class SpatialPolygonMerger:
         Polygon if contiguous).
         """
         from shapely.ops import unary_union
-        cleaned = []
-        for p in polygons:
-            if p.is_empty:
-                continue
-            if not p.is_valid:
-                p = make_valid(p)
-            # Flatten any MultiPolygons from clipping
-            if isinstance(p, MultiPolygon):
-                cleaned.extend(p.geoms)
-            else:
-                cleaned.append(p)
 
-        merged = unary_union(cleaned)
+        merged = unary_union(polygons)
+
         # If fragments don't quite touch, optionally buffer slightly to close gaps
         if gap_fill_distance > 0:
             merged = merged.buffer(gap_fill_distance).buffer(-gap_fill_distance)
+
         # Calculate bounding box coordinates for the merged polygon
         minx, miny, maxx, maxy = merged.bounds
         return merged, [minx, miny, maxx, maxy]
@@ -117,7 +109,7 @@ class SpatialPolygonMerger:
             if idx in neighbors:
                 neighbors.remove(idx)  # Remove self from neighbors
             polygons_to_merge = [idx]
-            avg_score = self.annotations.confidences[idx]
+            score_list = [self.annotations.confidences[idx]]
 
             for neighbor_idx in neighbors:
                 if (
@@ -125,9 +117,11 @@ class SpatialPolygonMerger:
                     self.annotations.class_ids[idx] == self.annotations.class_ids[neighbor_idx]
                     ):
                     polygons_to_merge.append(neighbor_idx)
-                    avg_score = (avg_score + self.annotations.confidences[neighbor_idx]) / 2
+                    score_list.append(self.annotations.confidences[neighbor_idx])
                     polygon_index.remove(neighbor_idx)
                     undermerged_idxs.remove(neighbor_idx)
+
+            avg_score = sum(score_list) / len(score_list)
             merged_polygon, bbox = self.merge_polygons([self.annotations.polygons[i] for i in polygons_to_merge])
             if not merged_polygon:
                 continue  # Skip if we couldn't merge into a single polygon
@@ -147,6 +141,10 @@ class SpatialPolygonMerger:
                 confidence=self.annotations.confidences[idx],
                 bbox=self.annotations.bboxes[idx] 
             )
+
+        logger.info(f"Total merged polygons: {len(merged_annotations.polygons)}")
+        logger.info(f"Total unmerged polygons: {len(unmerged_annotations.polygons)}")
+        logger.info(f"Total polygons after merging: {len(merged_annotations.polygons) + len(unmerged_annotations.polygons)}")
 
         combined_annotations = SPMPrediction(
             polygons=merged_annotations.polygons + unmerged_annotations.polygons,

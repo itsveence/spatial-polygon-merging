@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import rasterio
+import torch
 from ultralytics import YOLO
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from preprocessing.image_processing import stream_tiles_by_batch
 from spm.config import SPMPrediction
 from spm.spm import SpatialPolygonMerger
 from spm.utils import effective_overlap, is_overlap_candidate
-from utils.helpers import size_it
+from utils.helpers import size_it, time_it
 from utils.logger import logger
 
 class YOLOModel(BaseModel):
@@ -18,6 +19,7 @@ class YOLOModel(BaseModel):
         self.config = config
         # Load the model here using the provided model path and device
         self.model = YOLO(config.model_path)
+        self.model.eval()  # Set model to evaluation mode
 
     def __call__(self, *args, **kwargs) -> SPMPrediction:
         """Performs prediction on the given image and returns the result as an SPMPrediction object."""
@@ -104,6 +106,7 @@ class YOLOModel(BaseModel):
         cv2.imwrite(str(output_path), img_bgr)
 
     @size_it
+    @time_it
     def predict(self, image: Path, save: bool = False, merge_only_border: bool = True) -> SPMPrediction:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
@@ -117,7 +120,7 @@ class YOLOModel(BaseModel):
         """
         if isinstance(image, str):
             image = Path(image)
-            
+
         prediction = SPMPrediction()
 
         border_prediction_idxs: list[int] = []
@@ -125,11 +128,15 @@ class YOLOModel(BaseModel):
         with rasterio.open(image) as src:
             # Get image height and width for effective overlap calculation
             img_width, img_height = src.width, src.height
+            logger.info(f"Performing prediction on image: {image} (width: {img_width}, height: {img_height})")
 
             prediction_idx = 0
+            tile_counter = 0
             # Stream tiles from the image and run inference on each tile
             for batch, coordinate in stream_tiles_by_batch(src, tile_size=self.config.tile_size, batch_size=self.config.batch_size, overlap=self.config.overlap):
-                results = self.model(batch, device=self.config.device, conf=self.config.confidence_threshold, iou=self.config.iou_threshold)
+                tile_counter += len(batch)
+                with torch.inference_mode():
+                    results = self.model(batch, device=self.config.device, conf=self.config.confidence_threshold, iou=self.config.iou_threshold, verbose=False)
 
                 for i, res in enumerate(results):
                     tile_overlap = effective_overlap(
@@ -141,11 +148,11 @@ class YOLOModel(BaseModel):
                     img_height=img_height,
                 )
                     if res.boxes.xyxy.shape[0] == 0:
-                        logger.info(f"No boxes found in tile {i} at coordinate {coordinate[i]}")
+                        logger.debug(f"No boxes found in tile {i} at coordinate {coordinate[i]}")
                         continue
                     for j, (bbox, mask, cls, conf) in enumerate(zip(res.boxes.xyxy, res.masks.xy, res.boxes.cls, res.boxes.conf)):
                         if len(bbox) != 4 or len(mask) < 4:
-                            logger.info(f"No boxes found in tile {i} at coordinate {coordinate[i]}")
+                            logger.debug(f"No boxes found in tile {i} at coordinate {coordinate[i]}")
                             continue
                         _bbox = bbox.detach().clone()
                         _mask = mask.copy()
@@ -172,8 +179,7 @@ class YOLOModel(BaseModel):
                             segmentation=_mask
                         )
                         prediction_idx += 1
-            logger.info(f"Total predictions: {len(prediction.segmentations)}")
-            logger.info(f"Border predictions: {len(border_prediction_idxs)}")
+            logger.info(f"Total tiles processed: {tile_counter}")
             # Merge border predictions using SPM
             smp = SpatialPolygonMerger()
             smp.index(prediction)
@@ -194,11 +200,11 @@ class YOLOModel(BaseModel):
 
 if __name__ == "__main__":
     config = ModelConfig(
-        model_path="runs/segment/yolo26s-seg-training/weights/best.pt",
+        model_path="runs/segment/yolo-seg-whu/weights/best.pt",
         device="cuda:0",
         tile_size=1500,
         batch_size=4,
         overlap=300
     )
     model = YOLOModel(config)
-    prediction = model(Path("christchurch_487.tif"), save=True)
+    prediction = model(Path("christchurch_487.tif"), save=False, merge_only_border=True)
