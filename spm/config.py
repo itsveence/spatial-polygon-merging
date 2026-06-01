@@ -66,7 +66,7 @@ class SPMPrediction:
         with rasterio.open(self.image_path) as src:
             return src.crs, src.transform
 
-    def _to_gpkg(self) -> gpd.GeoDataFrame:
+    def _to_gdf(self) -> gpd.GeoDataFrame:
         """Convert the SPMPrediction to a GeoPandas GeoDataFrame."""
         crs, _ = self._get_crs_and_transform()
         geometries = self.polygons
@@ -155,7 +155,7 @@ class SPMPrediction:
                 json.dump(geojson_dict, f, indent=2)
 
         elif format == "gpkg":
-            gdf = self._to_gpkg()
+            gdf = self._to_gdf()
             gdf.to_file(output_path, driver="GPKG")
 
     @property
