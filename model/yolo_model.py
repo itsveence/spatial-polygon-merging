@@ -138,12 +138,12 @@ class YOLOModel(BaseModel):
 
     @size_it
     @time_it
-    def predict(self, image: Path, save: bool = False, visualize: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> SPMPrediction:
+    def predict(self, image: Path, save_format: str = "geojson", visualize: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> SPMPrediction:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
         Args:
             image (Path): Path to the input image for prediction.
-            save (bool): Whether to save the predictions.
+            save_format (str): The format to save the predictions in. Options are "geojson" or "gpkg". Defaults to "geojson".
             visualize (bool): Whether to visualize the predictions.
             merge_only_border (bool): Whether to only merge border predictions.
             get_seg_from_binary_mask (bool): Whether to get segmentation from a binary mask.
@@ -273,8 +273,8 @@ class YOLOModel(BaseModel):
             if visualize:
                 output_path = image.parent / f"{image.stem}_prediction.png"
                 self.visualize(src, merged_polygons, output_path)
-            if save:
-                merged_polygons.save_as_geojson()
+            if save_format:
+                merged_polygons.save_to_file(format=save_format)
 
         return merged_polygons
 
@@ -292,5 +292,5 @@ if __name__ == "__main__":
         overlap=0.2
     )
     model = YOLOModel(config)
-    prediction = model(Path("whole_cropped_2500m.tif"), save=True,
+    prediction = model(Path("christchurch_487.tif"), save_format="gpkg",
                        visualize=False, merge_only_border=False, get_seg_from_binary_mask=True)

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import rasterio
 from shapely import Polygon
+import geopandas as gpd
 
 from spm.utils import xy_mask_to_polygon
 
@@ -58,6 +59,25 @@ class SPMPrediction:
         """
         geo_x, geo_y = transform * (x, y)
         return geo_x, geo_y
+    
+    def _get_crs_and_transform(self):
+        if self.image_path is None:
+            raise ValueError("image_path is not set for SPMPrediction.")
+        with rasterio.open(self.image_path) as src:
+            return src.crs, src.transform
+
+    def _to_gpkg(self) -> gpd.GeoDataFrame:
+        """Convert the SPMPrediction to a GeoPandas GeoDataFrame."""
+        crs, _ = self._get_crs_and_transform()
+        geometries = self.polygons
+        properties = {
+            "name": self.names,
+            "class_id": self.class_ids,
+            "confidence": self.confidences,
+            "bbox": self.bboxes,
+        }
+        gdf = gpd.GeoDataFrame(properties, geometry=geometries, crs=crs)
+        return gdf
 
     def _to_geojson(self) -> dict:
         """Convert the SPMPrediction to a GeoJSON-like dictionary."""
@@ -81,9 +101,7 @@ class SPMPrediction:
 
             return value
 
-        with rasterio.open(self.image_path) as src:
-            transform = src.transform
-            crs = src.crs
+        crs, transform = self._get_crs_and_transform()
         _crs = crs.to_string() if crs else "EPSG:4326"
 
         features = []
@@ -121,14 +139,24 @@ class SPMPrediction:
             "features": features,
         }
 
-    def save_as_geojson(self) -> None:
+    def save_to_file(self, format: str = "geojson") -> None:
         """Save the SPMPrediction as a GeoJSON file."""
-        geojson_dict = self._to_geojson()
-        import json
+        format = format.lower()
+        if format not in ["geojson", "gpkg"]:
+            raise ValueError(f"Unsupported format: {format}")
+        
         output_path = self.image_path.with_suffix(
-            ".geojson") if self.image_path else Path("prediction.geojson")
-        with open(output_path, "w") as f:
-            json.dump(geojson_dict, f, indent=2)
+                f".{format}") if self.image_path else Path(f"prediction.{format}")
+        
+        if format == "geojson":
+            geojson_dict = self._to_geojson()
+            import json
+            with open(output_path, "w") as f:
+                json.dump(geojson_dict, f, indent=2)
+
+        elif format == "gpkg":
+            gdf = self._to_gpkg()
+            gdf.to_file(output_path, driver="GPKG")
 
     @property
     def count(self):
