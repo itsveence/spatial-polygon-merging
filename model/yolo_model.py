@@ -168,7 +168,7 @@ class YOLOModel(BaseModel):
             prediction_idx = 0
             tile_counter = 0
             # Stream tiles from the image and run inference on each tile
-            for batch, coordinate in stream_tiles_by_batch(src, tile_size=self.config.tile_size, batch_size=self.config.batch_size, overlap=self.config.overlap):
+            for batch, coordinate in stream_tiles_by_batch(src, tile_size=self.config.tile_size, batch_size=self.config.batch_size, overlap=self.config.overlap_pixels):
                 tile_counter += len(batch)
                 with torch.inference_mode():
                     results = self.model(
@@ -189,7 +189,7 @@ class YOLOModel(BaseModel):
                         tile_x=coordinate[i][1],
                         tile_y=coordinate[i][0],
                         tile_size=self.config.tile_size,
-                        overlap=self.config.overlap,
+                        overlap=self.config.overlap_pixels,
                         img_width=img_width,
                         img_height=img_height,
                     )
@@ -289,7 +289,7 @@ if __name__ == "__main__":
         device="cuda:0",
         tile_size=1500,
         batch_size=4,
-        overlap=300
+        overlap=0.2
     )
     model = YOLOModel(config)
     prediction = model(Path("whole_cropped_2500m.tif"), save=True,
