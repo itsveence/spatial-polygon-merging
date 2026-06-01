@@ -70,6 +70,7 @@ class SpatialPolygonMerger:
             # Get the neighbors to merge for this neighbor
             if self.should_merge(poly_idx, neighbor_idx):
                 neighbors_to_merge.add(neighbor_idx)
+        # TODO: Add a guardrail to prevent long chains of merges that could potentially merge every polygon in the worst case.
         while neighbors:
             neighbor_idx = neighbors.pop()
             query_polygon = self.annotations.polygons[neighbor_idx]
@@ -84,19 +85,19 @@ class SpatialPolygonMerger:
 
     @size_it
     @time_it
-    def merge(self, poly_idxs: list[int]=None) -> tuple[SPMPrediction]:
+    def merge(self, poly_idxs: list[int]=None) -> SPMPrediction:
         """
         Merges polygons based on distance thresholds.
         Args:
             poly_idxs (list[int], optional): Optional list of polygon indices to consider for merging. If None, considers all polygons.
         Returns:
-            tuple[SPMPrediction]: A tuple containing the merged annotations and the unmerged annotations.
+            SPMPrediction: The merged annotations.
         """
         if self.annotations is None:
             raise ValueError("No polygons to merge. Call index() first.")
         
-        merged_annotations = SPMPrediction()
-        unmerged_annotations = SPMPrediction()
+        merged_annotations = SPMPrediction(image_path=self.annotations.image_path)
+        unmerged_annotations = SPMPrediction(image_path=self.annotations.image_path)
         if poly_idxs is None:
             poly_idxs = list(range(len(self.annotations.polygons)))
         polygon_index = set(poly_idxs)  # Keep track of original indices
@@ -151,7 +152,9 @@ class SpatialPolygonMerger:
             class_ids=merged_annotations.class_ids + unmerged_annotations.class_ids,
             confidences=merged_annotations.confidences + unmerged_annotations.confidences,
             bboxes=merged_annotations.bboxes + unmerged_annotations.bboxes,
-            names=merged_annotations.names + unmerged_annotations.names
+            names=merged_annotations.names + unmerged_annotations.names,
+            image_path=self.annotations.image_path
         )
         
         return combined_annotations
+

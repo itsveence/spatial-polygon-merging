@@ -12,3 +12,4 @@ class ModelConfig:
     # Inference parameters
     tile_size: int = 3000
     overlap: int = 300
+    contour_approx_factor: float = 0.01 # Factor for approximating contours
