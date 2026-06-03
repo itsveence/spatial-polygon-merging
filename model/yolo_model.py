@@ -200,8 +200,10 @@ class YOLOModel(BaseModel):
                     classes = res.boxes.cls.cpu().numpy().astype(int)
                     confidences = res.boxes.conf.cpu().numpy()
                     names = res.names
-                    masks = (res.masks.data.cpu().numpy().astype(np.uint8)
-                             if get_seg_from_binary_mask else res.masks.xy)
+                    masks = (
+                        res.masks.data.cpu().numpy().astype(np.uint8)
+                        if get_seg_from_binary_mask else res.masks.xy
+                    )
 
                     # Convert tile-relative coordinates to absolute image coordinates
                     abs_bboxes = bboxes.copy()
@@ -264,7 +266,7 @@ class YOLOModel(BaseModel):
             # Merge border predictions using SPM
             smp = SpatialPolygonMerger()
             smp.index(prediction)
-            
+
             if merge_only_border:
                 merged_polygons = smp.merge(border_prediction_idxs)
             else:

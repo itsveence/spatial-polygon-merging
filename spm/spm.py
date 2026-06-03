@@ -36,7 +36,7 @@ class SpatialPolygonMerger:
         
         return a.distance(b) <= self.config.rho_dist
     
-    def merge_polygons(self, polygons: list[Polygon], gap_fill_distance: float = 5.0) -> tuple[Polygon, list[float, float, float, float]]:
+    def merge_polygons(self, polygons: list[Polygon]) -> tuple[Polygon, list[float, float, float, float]]:
         """
         Merge a cluster of fragment polygons into one.
         unary_union handles arbitrary numbers of fragments,
@@ -47,9 +47,7 @@ class SpatialPolygonMerger:
 
         merged = unary_union(polygons)
 
-        # If fragments don't quite touch, optionally buffer slightly to close gaps
-        if gap_fill_distance > 0:
-            merged = merged.buffer(gap_fill_distance).buffer(-gap_fill_distance)
+        merged = merged.buffer(0)  # Clean up geometry
 
         # Calculate bounding box coordinates for the merged polygon
         minx, miny, maxx, maxy = merged.bounds
