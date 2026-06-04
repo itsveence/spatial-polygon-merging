@@ -68,15 +68,32 @@ class SPMPrediction:
 
     def _to_gdf(self) -> gpd.GeoDataFrame:
         """Convert the SPMPrediction to a GeoPandas GeoDataFrame."""
-        crs, _ = self._get_crs_and_transform()
-        geometries = self.polygons
+        from shapely.ops import transform
+        
+        crs, affine_transform = self._get_crs_and_transform()
+
+        def pixel_to_geo(x, y, z=None):
+            x_geo, y_geo = affine_transform * (x, y)
+            return x_geo, y_geo
+
+        geometries = [
+            transform(pixel_to_geo, geom)
+            for geom in self.polygons
+        ]
+
         properties = {
             "name": self.names,
             "class_id": self.class_ids,
             "confidence": self.confidences,
             "bbox": self.bboxes,
         }
-        gdf = gpd.GeoDataFrame(properties, geometry=geometries, crs=crs)
+
+        gdf = gpd.GeoDataFrame(
+            properties,
+            geometry=geometries,
+            crs=crs
+        )
+
         return gdf
 
     def _to_geojson(self) -> dict:

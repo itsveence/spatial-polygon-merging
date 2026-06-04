@@ -56,7 +56,7 @@ class SpatialPolygonMerger:
     
     def find_neighbors(self, poly_idx: int) -> set[int]:
         """
-        Find all chainable neighbors of a polygon based on distance and IoU thresholds.
+        Find all chainable neighbors of a polygon with BFS.
         Args:
             poly_idx (int): Index of the polygon in self.annotations.polygons for which to find neighbors.
         Returns:
