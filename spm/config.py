@@ -170,3 +170,4 @@ class SPMConfig:
     tau_dist: float = 4.0  # Distance around geometry within which to query the STRtree for neighbors
     # Distance threshold for merging polygons (used in should_merge)
     rho_dist: float = 5.0
+    tau_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges
