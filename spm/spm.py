@@ -11,6 +11,7 @@ class SpatialPolygonMerger:
         self.config = config
         self.tree: STRtree = None
         self.annotations: SPMPrediction = None
+        self.query_cache: dict[int, list[int]] = {}
         
     @time_it
     def index(self, annotations: SPMPrediction):
@@ -54,6 +55,17 @@ class SpatialPolygonMerger:
         minx, miny, maxx, maxy = merged.bounds
         return merged, [minx, miny, maxx, maxy]
     
+    def _query(self, poly_idx: int) -> list[int]:
+        """
+        Internal method to query neighbors for a given polygon index with caching.
+        """
+        if cached:= self.query_cache.get(poly_idx):
+            return cached
+        
+        neighbors = self.query(self.annotations.polygons[poly_idx])
+        self.query_cache[poly_idx] = neighbors
+        return neighbors
+    
     def find_neighbors(self, poly_idx: int) -> set[int]:
         """
         Find all chainable neighbors of a polygon with BFS.
@@ -63,29 +75,29 @@ class SpatialPolygonMerger:
             set[int]: Set of indices of neighboring polygons that should be merged with the given polygon.
             """
         
-        anchor = self.annotations.polygons[poly_idx]
+        # anchor = self.annotations.polygons[poly_idx]
         neighbors_to_merge = {poly_idx}
         queue: deque[tuple[int, int]] = deque()
 
         # Base case: find direct neighbors of the anchor polygon
-        for cand_idx in self.query(anchor):
+        for cand_idx in self._query(poly_idx):
             if cand_idx == poly_idx:
                 continue
-            if self.should_merge(poly_idx, cand_idx):
-                neighbors_to_merge.add(cand_idx)
-                queue.append((cand_idx, 1))
+            # if self.should_merge(poly_idx, cand_idx):
+            neighbors_to_merge.add(cand_idx)
+            queue.append((cand_idx, 1))
 
         # Transitive: each new merge increments depth from its parent
         while queue:
             node_idx, depth = queue.popleft()
             if depth >= self.config.tau_chain:
                 continue
-            for cand_idx in self.query(self.annotations.polygons[node_idx]):
+            for cand_idx in self._query(node_idx):
                 if cand_idx in neighbors_to_merge:
                     continue
-                if self.should_merge(node_idx, cand_idx):
-                    neighbors_to_merge.add(cand_idx)
-                    queue.append((cand_idx, depth + 1))
+                # if self.should_merge(node_idx, cand_idx):
+                neighbors_to_merge.add(cand_idx)
+                queue.append((cand_idx, depth + 1))
 
         return neighbors_to_merge
 
