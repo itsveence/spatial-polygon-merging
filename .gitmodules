@@ -1,0 +1,3 @@
+[submodule "spatial_mask_merging"]
+	path = spatial_mask_merging
+	url = git@github.com:mihajlov39547/spatial-mask-merging.git
