@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from spm.prediction import SPMPrediction
+from spm.core.prediction import SPMPrediction
 
 class BaseModel(ABC):
     """Abstract base class for all models used in the inference pipeline."""

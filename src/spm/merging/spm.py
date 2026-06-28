@@ -1,9 +1,10 @@
 from __future__ import annotations
 from collections import deque
-from shapely import MultiPolygon, Polygon, STRtree, make_valid
-from spm.prediction import SPMConfig, SPMPrediction
-from utils.helpers import size_it, time_it
-from utils.logger import logger
+from shapely import MultiPolygon, Polygon, STRtree
+from spm.config.config import SPMConfig
+from spm.core.prediction import SPMPrediction
+from spm.utils.profiling import size_it, time_it
+from spm.utils.logger import logger
 
 
 class SpatialPolygonMerger:

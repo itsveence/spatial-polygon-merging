@@ -17,7 +17,7 @@ def main():
 
     # ---- Train command ----
     train_parser = subparsers.add_parser("train", help="Train the YOLO segmentation model")
-    train_parser.add_argument("--data", type=str, default="bin/data/whu.yaml", help="Path to the dataset YAML file")
+    train_parser.add_argument("--data", type=str, default="data/whu_yolo_dataset-2/whu.yaml", help="Path to the dataset YAML file")
     train_parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
     train_parser.add_argument("--imgsz", type=int, default=640, help="Image size for training")
     train_parser.add_argument("--batch", type=int, default=4, help="Batch size for training")

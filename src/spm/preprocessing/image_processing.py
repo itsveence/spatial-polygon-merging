@@ -5,8 +5,8 @@ import tifffile as tiff
 import rasterio
 from typing import Generator, Union
 
-from utils.logger import logger
-from utils.helpers import time_it
+from spm.utils.logger import logger
+from spm.utils.profiling import time_it
 
 
 def tiff_to_png(tiff_path: Path, png_path: Path) -> None:

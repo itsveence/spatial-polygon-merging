@@ -2,10 +2,8 @@ from typing import Union
 
 import numpy as np
 from shapely import MultiPolygon, Polygon
-from shapely.ops import unary_union
-from shapely.validation import make_valid
 
-from utils.logger import logger
+from spm.utils.logger import logger
 
 def effective_overlap(
         tile_x: int,

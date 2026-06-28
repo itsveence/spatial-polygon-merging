@@ -2,7 +2,7 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 from memory_profiler import memory_usage
-from utils.logger import logger
+from spm.utils.logger import logger
 
 
 def time_it(func):

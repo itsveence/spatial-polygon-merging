@@ -2,7 +2,7 @@ import supervision as sv
 from PIL import Image
 from ultralytics import YOLO
 
-from utils.helpers import size_it, time_it
+from src.spm.utils.profiling import size_it, time_it
 
 model = YOLO("runs/segment/yolo-seg-whu/weights/best.pt")
 
@@ -22,7 +22,7 @@ def slicer(image):
     )
     return _slicer(image)
 
-image = Image.open("christchurch_487.tif")
+image = Image.open("data/whu_yolo_dataset-2/images/test/30039.TIF")
 detections = slicer(image)
 
 # detections.mask will contain the merged segmentation masks

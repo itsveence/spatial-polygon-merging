@@ -5,13 +5,13 @@ import torch
 from ultralytics import YOLO
 from pathlib import Path
 
-from model.base_model import BaseModel
-from model.config import ModelConfig
-from preprocessing.image_processing import binary_mask_to_contours, stream_tiles_by_batch
-from spm.prediction import SPMPrediction
-from spm.spm import SpatialPolygonMerger
-from spm.utils import effective_overlap, is_overlap_candidate
-from utils.logger import logger
+from spm.models.base_model import BaseModel
+from spm.config.config import ModelConfig
+from spm.preprocessing.image_processing import binary_mask_to_contours, stream_tiles_by_batch
+from spm.core.prediction import SPMPrediction
+from spm.merging.spm import SpatialPolygonMerger
+from spm.core.geometry import effective_overlap, is_overlap_candidate
+from spm.utils.logger import logger
 
 
 class YOLOModel(BaseModel):

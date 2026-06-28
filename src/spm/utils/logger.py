@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 import time
-from settings import LOGGING_LEVEL
+from spm.config.settings import LOGGING_LEVEL
 
 
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 from ultralytics.data.converter import convert_coco
-from preprocessing.image_processing import tiff_to_png, mask_to_txt
-from utils.logger import logger
+from spm.preprocessing.image_processing import tiff_to_png, mask_to_txt
+from spm.utils.logger import logger
 
 def prepare_dataset(input_dir: Path, output_dir: Path) -> None:
 

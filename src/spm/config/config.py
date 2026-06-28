@@ -18,3 +18,9 @@ class ModelConfig:
         return round(self.overlap * self.tile_size)
     
     contour_approx_factor: float = 0.01 # Factor for approximating contours
+
+@dataclass
+class SPMConfig:
+    """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
+    tau_dist: float = 3.0  # Distance around geometry within which to query the STRtree for neighbors
+    tau_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges
