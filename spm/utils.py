@@ -1,4 +1,4 @@
-import math
+from typing import Union
 
 import numpy as np
 from shapely import MultiPolygon, Polygon
@@ -79,56 +79,10 @@ def is_overlap_candidate(
 
     return near_left or near_top or near_right or near_bottom
 
-def xy_mask_to_polygon(mask: list[tuple[float, float]]) -> Polygon:
+def xy_mask_to_polygon(mask: list[list[tuple[float, float]]]) -> Union[Polygon, MultiPolygon]:
     """Converts a list of (x, y) coordinates representing a mask into a Shapely Polygon."""
-    polygon = Polygon(mask)
-    return sanitize_polygon(polygon)
-
-def sanitize_polygon(poly: Polygon, simplify_tolerance: float = 5) -> Polygon | None:
-    """
-    Fix common GEOS topology issues:
-    - Duplicate/zero-length vertices
-    - Self-intersections
-    - Invalid rings
-    """
-    if poly is None or poly.is_empty:
-        return None
-
-    # Remove duplicate consecutive coords (zero-length edges)
-    coords = list(poly.exterior.coords)
-    deduped = [coords[0]]
-    for c in coords[1:]:
-        if c != deduped[-1]:  # skip exact duplicates
-            deduped.append(c)
-
-    # Need at least 4 coords to form a valid ring
-    if len(deduped) < 4:
-        return None
-
-    poly = Polygon(deduped)
-
-    # Simplify to remove near-duplicate vertices causing
-    # non-noded intersections (tolerance in pixels)
-    poly = poly.simplify(simplify_tolerance, preserve_topology=True)
-
-    if poly.is_empty:
-        return None
-
-    # Fix any remaining invalidity (self-touches, self-crosses)
-    if not poly.is_valid:
-        poly = make_valid(poly)
-
-    # make_valid can return GeometryCollection — extract largest polygon
-    if poly.geom_type == 'GeometryCollection':
-        polys = [g for g in poly.geoms if isinstance(g, (Polygon, MultiPolygon))]
-        if not polys:
-            return None
-        poly = max(polys, key=lambda g: g.area)
-
-    if poly.geom_type == 'MultiPolygon':
-        poly = max(poly.geoms, key=lambda g: g.area)
-
-    if poly.is_empty or not isinstance(poly, Polygon):
-        return None
-    
-    return poly
+    if len(mask) > 1:
+        polygon = MultiPolygon([Polygon(m) for m in mask])
+    else:
+        polygon = Polygon(mask[0])
+    return polygon

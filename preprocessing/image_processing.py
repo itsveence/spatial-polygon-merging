@@ -26,12 +26,13 @@ def tiff_to_png(tiff_path: Path, png_path: Path) -> None:
         logger.error(f"Failed to convert {tiff_path} to PNG: {e}")
 
 
-def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, contour_approx_factor: float = 0.01, normalize: bool = True, sort_by_area: bool = False) -> list[list[Union[float, int]]]:
+def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, approx_contour: bool = False, contour_approx_factor: float = 0.01, normalize: bool = True, sort_by_area: bool = False) -> list[list[Union[float, int]]]:
     """Converts binary masks to contours, with options for filtering by area, normalizing coordinates, and sorting by area.
 
     Args:
         mask (np.ndarray): Binary mask where the object pixels are 255/True and the background is 0/False.
         min_area (int, optional): Minimum area of contours to include. Defaults to 20.
+        approx_contour (bool, optional): Whether to approximate contours. Defaults to False.
         contour_approx_factor (float, optional): Factor for approximating contours. Defaults to 0.01.
         normalize (bool, optional): Whether to normalize coordinates. Defaults to True.
         sort_by_area (bool, optional): Whether to sort contours by area. Defaults to False.
@@ -57,13 +58,14 @@ def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, contour_approx
             continue
 
         # Simplify contour
-        epsilon = contour_approx_factor * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
+        if approx_contour:
+            epsilon = contour_approx_factor * cv2.arcLength(contour, True)
+            contour = cv2.approxPolyDP(contour, epsilon, True)
 
-        if len(approx) < 3:
+        if len(contour) < 3:
             continue
 
-        points = approx.reshape(-1, 2)
+        points = contour.reshape(-1, 2)
 
         if normalize:
             normalized = (points/[w, h]).ravel().tolist()

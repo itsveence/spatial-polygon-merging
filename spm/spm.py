@@ -1,7 +1,7 @@
 from __future__ import annotations
 from collections import deque
 from shapely import MultiPolygon, Polygon, STRtree, make_valid
-from spm.config import SPMConfig, SPMPrediction
+from spm.prediction import SPMConfig, SPMPrediction
 from utils.helpers import size_it, time_it
 from utils.logger import logger
 
@@ -12,7 +12,7 @@ class SpatialPolygonMerger:
         self.tree: STRtree = None
         self.annotations: SPMPrediction = None
         self.query_cache: dict[int, list[int]] = {}
-        
+
     @time_it
     def index(self, annotations: SPMPrediction):
         """Creates a spatial index (STRtree) for the given list of polygons."""
@@ -25,20 +25,32 @@ class SpatialPolygonMerger:
         if self.tree is None:
             raise ValueError("Spatial index not created. Call index() first.")
         return self.tree.query(polygon, predicate='dwithin', distance=self.config.tau_dist).tolist()
-    
+
     def should_merge(self, poly_i, poly_j):
         """
         Merges two polygons that intersect or are within the distance threshold.
         """
         a = self.annotations.polygons[poly_i]
         b = self.annotations.polygons[poly_j]
-        
+
         if a.intersects(b):
             return True
-        
-        return a.distance(b) <= self.config.rho_dist
-    
-    def merge_polygons(self, polygons: list[Polygon]) -> tuple[Polygon, list[float, float, float, float]]:
+
+        return a.distance(b) <= self.config.tau_dist
+
+    @staticmethod
+    def _segmentation_from_geometry(geometry: Polygon | MultiPolygon) -> list[list[tuple[float, float]]]:
+        """
+        Extract exterior-ring coordinates as a segmentation list.
+
+        unary_union may return a Polygon (contiguous fragments) or a
+        MultiPolygon (disconnected fragments); return one ring per part.
+        """
+        if isinstance(geometry, MultiPolygon):
+            return [list(part.exterior.coords) for part in geometry.geoms]
+        return [list(geometry.exterior.coords)]
+
+    def merge_polygons(self, polygons: list[Polygon]) -> Polygon:
         """
         Merge a cluster of fragment polygons into one.
         unary_union handles arbitrary numbers of fragments,
@@ -47,25 +59,24 @@ class SpatialPolygonMerger:
         """
         from shapely.ops import unary_union
 
+        logger.debug(f"Merging {len(polygons)} polygons")
         merged = unary_union(polygons)
 
         merged = merged.buffer(0)  # Clean up geometry
 
-        # Calculate bounding box coordinates for the merged polygon
-        minx, miny, maxx, maxy = merged.bounds
-        return merged, [minx, miny, maxx, maxy]
-    
+        return merged
+
     def _query(self, poly_idx: int) -> list[int]:
         """
         Internal method to query neighbors for a given polygon index with caching.
         """
-        if cached:= self.query_cache.get(poly_idx):
+        if cached := self.query_cache.get(poly_idx):
             return cached
-        
+
         neighbors = self.query(self.annotations.polygons[poly_idx])
         self.query_cache[poly_idx] = neighbors
         return neighbors
-    
+
     def find_neighbors(self, poly_idx: int) -> set[int]:
         """
         Find all chainable neighbors of a polygon with BFS.
@@ -74,7 +85,7 @@ class SpatialPolygonMerger:
         Returns:
             set[int]: Set of indices of neighboring polygons that should be merged with the given polygon.
             """
-        
+
         # anchor = self.annotations.polygons[poly_idx]
         neighbors_to_merge = {poly_idx}
         queue: deque[tuple[int, int]] = deque()
@@ -84,8 +95,9 @@ class SpatialPolygonMerger:
             if cand_idx == poly_idx:
                 continue
             # if self.should_merge(poly_idx, cand_idx):
-            neighbors_to_merge.add(cand_idx)
-            queue.append((cand_idx, 1))
+            if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
+                neighbors_to_merge.add(cand_idx)
+                queue.append((cand_idx, 1))
 
         # Transitive: each new merge increments depth from its parent
         while queue:
@@ -96,14 +108,15 @@ class SpatialPolygonMerger:
                 if cand_idx in neighbors_to_merge:
                     continue
                 # if self.should_merge(node_idx, cand_idx):
-                neighbors_to_merge.add(cand_idx)
-                queue.append((cand_idx, depth + 1))
+                if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
+                    neighbors_to_merge.add(cand_idx)
+                    queue.append((cand_idx, depth + 1))
 
         return neighbors_to_merge
 
     @size_it
     @time_it
-    def merge(self, poly_idxs: list[int]=None) -> SPMPrediction:
+    def merge(self, poly_idxs: list[int] = None) -> SPMPrediction:
         """
         Merges polygons based on distance thresholds.
         Args:
@@ -114,8 +127,12 @@ class SpatialPolygonMerger:
         if self.annotations is None:
             raise ValueError("No polygons to merge. Call index() first.")
         
-        merged_annotations = SPMPrediction(image_path=self.annotations.image_path)
-        unmerged_annotations = SPMPrediction(image_path=self.annotations.image_path)
+        logger.info(f"Starting merge process with {len(self.annotations.polygons)} polygons.")
+
+        merged_annotations = SPMPrediction(
+            image_path=self.annotations.image_path, image_shape=self.annotations.image_shape)
+        unmerged_annotations = SPMPrediction(
+            image_path=self.annotations.image_path, image_shape=self.annotations.image_shape)
         if poly_idxs is None:
             poly_idxs = list(range(len(self.annotations.polygons)))
         polygon_index = set(poly_idxs)  # Keep track of original indices
@@ -123,57 +140,74 @@ class SpatialPolygonMerger:
 
         while polygon_index:
             idx = polygon_index.pop()
-            undermerged_idxs.discard(idx)
             neighbors = self.find_neighbors(idx)
             logger.debug(f"Polygon {idx} has neighbors to merge: {neighbors}")
-            if idx in neighbors:
-                neighbors.discard(idx)
+            if len(neighbors) <= 1:
+                continue
+
+            neighbors.discard(idx)
             polygons_to_merge = [idx]
-            score_list = [self.annotations.confidences[idx]]
+            score_sum = self.annotations.confidences[idx]
+            score_count = 1
 
             for neighbor_idx in neighbors:
                 if (
-                    neighbor_idx in polygon_index and 
+                    neighbor_idx in polygon_index and
                     self.annotations.class_ids[idx] == self.annotations.class_ids[neighbor_idx]
-                    ):
+                ):
                     polygons_to_merge.append(neighbor_idx)
-                    score_list.append(self.annotations.confidences[neighbor_idx])
+                    
+                    score_sum += self.annotations.confidences[neighbor_idx]
+                    score_count += 1
+
                     polygon_index.discard(neighbor_idx)
                     undermerged_idxs.discard(neighbor_idx)
 
-            avg_score = sum(score_list) / len(score_list)
-            merged_polygon, bbox = self.merge_polygons([self.annotations.polygons[i] for i in polygons_to_merge])
+            
+            merged_polygon = self.merge_polygons(
+                [self.annotations.polygons[i] for i in polygons_to_merge])
             if not merged_polygon:
-                continue  # Skip if we couldn't merge into a single polygon
+                continue
+
             merged_annotations.add_annotation(
-                polygon=merged_polygon, 
+                polygon=merged_polygon,
+                segmentation=self._segmentation_from_geometry(merged_polygon),
                 class_id=self.annotations.class_ids[idx],
                 name=self.annotations.names[idx],
-                confidence=avg_score, 
-                bbox=bbox)
-        
+                confidence=(score_sum / score_count),
+                bbox=merged_polygon.bounds)
+            
+            undermerged_idxs.discard(idx)
+
         # Get unmerged annotations that were not part of any merge
         for idx in undermerged_idxs:
             unmerged_annotations.add_annotation(
                 polygon=self.annotations.polygons[idx],
+                segmentation=self._segmentation_from_geometry(
+                    self.annotations.polygons[idx]),
                 class_id=self.annotations.class_ids[idx],
                 name=self.annotations.names[idx],
                 confidence=self.annotations.confidences[idx],
-                bbox=self.annotations.bboxes[idx] 
+                bbox=self.annotations.bboxes[idx]
             )
 
-        logger.info(f"Total merged polygons: {len(merged_annotations.polygons)}")
-        logger.info(f"Total unmerged polygons: {len(unmerged_annotations.polygons)}")
-        logger.info(f"Total polygons after merging: {len(merged_annotations.polygons) + len(unmerged_annotations.polygons)}")
+        logger.info(
+            f"Total merged polygons: {len(merged_annotations.polygons)}")
+        logger.info(
+            f"Total unmerged polygons: {len(unmerged_annotations.polygons)}")
+        logger.info(
+            f"Total polygons after merging: {len(merged_annotations.polygons) + len(unmerged_annotations.polygons)}")
 
         combined_annotations = SPMPrediction(
             polygons=merged_annotations.polygons + unmerged_annotations.polygons,
+            segmentations=merged_annotations.segmentations +
+            unmerged_annotations.segmentations,
             class_ids=merged_annotations.class_ids + unmerged_annotations.class_ids,
             confidences=merged_annotations.confidences + unmerged_annotations.confidences,
             bboxes=merged_annotations.bboxes + unmerged_annotations.bboxes,
             names=merged_annotations.names + unmerged_annotations.names,
-            image_path=self.annotations.image_path
+            image_path=self.annotations.image_path,
+            image_shape=self.annotations.image_shape
         )
-        
-        return combined_annotations
 
+        return combined_annotations

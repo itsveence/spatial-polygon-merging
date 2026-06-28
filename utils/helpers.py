@@ -1,7 +1,7 @@
 import time
 from datetime import datetime, timedelta
 from functools import wraps
-import tracemalloc
+from memory_profiler import memory_usage
 from utils.logger import logger
 
 
@@ -27,11 +27,11 @@ def size_it(func):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        tracemalloc.start()
-        result = func(*args, **kwargs)
-        _, peak_memory = tracemalloc.get_traced_memory()
+        baseline = memory_usage(max_usage=True)
+        peak, result = memory_usage((func, args, kwargs), max_usage=True, retval=True)
+        peak_memory = peak - baseline
         logger.info(
-            f"\033[32mPeak memory usage for {func.__name__}(): {peak_memory / 1024 / 1024:.2f} MB\033[0m"
+            f"\033[32mPeak memory usage for {func.__name__}(): {peak_memory:.2f} MB\033[0m"
         )
         return result
 

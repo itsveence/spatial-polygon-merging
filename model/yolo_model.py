@@ -8,10 +8,9 @@ from pathlib import Path
 from model.base_model import BaseModel
 from model.config import ModelConfig
 from preprocessing.image_processing import binary_mask_to_contours, stream_tiles_by_batch
-from spm.config import SPMPrediction
+from spm.prediction import SPMPrediction
 from spm.spm import SpatialPolygonMerger
 from spm.utils import effective_overlap, is_overlap_candidate
-from utils.helpers import size_it, time_it
 from utils.logger import logger
 
 
@@ -22,10 +21,9 @@ class YOLOModel(BaseModel):
         self.model = YOLO(config.model_path)
         self.model.eval()  # Set model to evaluation mode
 
-    def __call__(self, *args, **kwargs) -> SPMPrediction:
+    def __call__(self, *args, **kwargs):
         """Performs prediction on the given image and returns the result as an SPMPrediction object."""
-        prediction = self.predict(*args, **kwargs)
-        return prediction
+        return self.predict(*args, **kwargs)
 
     @staticmethod
     def visualize(src: rasterio.DatasetReader, prediction: SPMPrediction, output_path: Path) -> None:
@@ -119,26 +117,28 @@ class YOLOModel(BaseModel):
         if len(contours) == 0:
             return None
 
-        # Get the largest contour as the main polygon
-        contour = contours[0]
+        processed_masks = []
 
-        # Scale polygon points back to original image coordinates
-        contour = np.asarray(contour, dtype=np.float32)
-        if contour.ndim == 1:
-            contour = contour.reshape(-1, 2)
+        for contour in contours:
+            # # Get the largest contour as the main polygon
+            # contour = contours[0]
 
-        # Scale polygon points back to original image size
-        scale_x = self.config.tile_size / mask.shape[1]
-        scale_y = self.config.tile_size / mask.shape[0]
+            # Scale polygon points back to original image coordinates
+            contour = np.asarray(contour, dtype=np.float32)
+            if contour.ndim == 1:
+                contour = contour.reshape(-1, 2)
 
-        processed_mask = contour * \
-            np.array([scale_x, scale_y], dtype=np.float32)
+            # Scale polygon points back to original image size
+            scale_x = self.config.tile_size / mask.shape[1]
+            scale_y = self.config.tile_size / mask.shape[0]
 
-        return processed_mask
+            processed_mask = contour * \
+                np.array([scale_x, scale_y], dtype=np.float32)
+            processed_masks.append(processed_mask)
 
-    @size_it
-    @time_it
-    def predict(self, image: Path, save_format: str = "geojson", visualize: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> SPMPrediction:
+        return processed_masks
+
+    def predict(self, image: Path, save_format: str = "geojson", visualize: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> tuple[SPMPrediction]:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
         Args:
@@ -149,7 +149,7 @@ class YOLOModel(BaseModel):
             get_seg_from_binary_mask (bool): Whether to get segmentation from a binary mask.
 
         Returns:
-            SPMPrediction: The prediction result containing polygons, class IDs, confidences, and bounding boxes.
+            tuple[SPMPrediction]: The merged prediction result and the original prediction.
         """
         if isinstance(image, str):
             image = Path(image)
@@ -162,6 +162,7 @@ class YOLOModel(BaseModel):
 
             # Get image height and width for effective overlap calculation
             img_width, img_height = src.width, src.height
+            prediction.image_shape = (img_height, img_width)  # Store image shape in prediction
             logger.info(
                 f"Performing prediction on image: {image} (width: {img_width}, height: {img_height})")
 
@@ -231,16 +232,12 @@ class YOLOModel(BaseModel):
                                 logger.debug(
                                     f"No valid contours found in binary mask for tile {i} at coordinate {coordinate[i]}")
                                 continue
+                        
+                        for seg_idx in range(len(_mask)):
 
-                        # Adjust the mask coordinates to the original image coordinate system
-                        _mask[:, 0] += tile_x
-                        _mask[:, 1] += tile_y
-
-                        # Correct the bbox coordinates to the original image coordinate system
-                        _bbox[0] = _bbox[0] + tile_x  # x_min
-                        _bbox[1] = _bbox[1] + tile_y  # y_min
-                        _bbox[2] = _bbox[2] + tile_x  # x_max
-                        _bbox[3] = _bbox[3] + tile_y  # y_max
+                            # Adjust the mask coordinates to the original image coordinate system
+                            _mask[seg_idx][:, 0] = (_mask[seg_idx][:, 0] + tile_x)
+                            _mask[seg_idx][:, 1] = (_mask[seg_idx][:, 1] + tile_y)
 
                         if is_overlap_candidate(
                                 bbox=bboxes[j],
@@ -257,7 +254,7 @@ class YOLOModel(BaseModel):
                             class_id=_cls,
                             confidence=_conf,
                             bbox=_bbox,
-                            segmentation=_mask.tolist()
+                            segmentation=_mask
                         )
                         prediction_idx += 1
 
@@ -278,21 +275,8 @@ class YOLOModel(BaseModel):
             if save_format:
                 merged_polygons.save_to_file(format=save_format)
 
-        return merged_polygons
+        return merged_polygons, prediction
 
     def train(self, dataset):
         # Implement the training logic here
         pass
-
-
-if __name__ == "__main__":
-    config = ModelConfig(
-        model_path="runs/segment/yolo-seg-whu/weights/best.pt",
-        device="cuda:0",
-        tile_size=1500,
-        batch_size=4,
-        overlap=0.2
-    )
-    model = YOLOModel(config)
-    prediction = model(Path("christchurch_487.tif"), save_format="gpkg",
-                       visualize=False, merge_only_border=False, get_seg_from_binary_mask=True)
