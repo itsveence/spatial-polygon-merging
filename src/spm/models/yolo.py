@@ -12,6 +12,7 @@ from spm.core.prediction import SPMPrediction
 from spm.merging.spm import SpatialPolygonMerger
 from spm.core.geometry import effective_overlap, is_overlap_candidate
 from spm.utils.logger import logger
+from spm.visualization.overlays import visualize
 
 
 class YOLOModel(BaseModel):
@@ -117,34 +118,30 @@ class YOLOModel(BaseModel):
         if len(contours) == 0:
             return None
 
-        processed_masks = []
+        # Get the largest contour as the main polygon
+        contour = contours[0]
 
-        for contour in contours:
-            # # Get the largest contour as the main polygon
-            # contour = contours[0]
+        # Scale polygon points back to original image coordinates
+        contour = np.asarray(contour, dtype=np.float32)
+        if contour.ndim == 1:
+            contour = contour.reshape(-1, 2)
 
-            # Scale polygon points back to original image coordinates
-            contour = np.asarray(contour, dtype=np.float32)
-            if contour.ndim == 1:
-                contour = contour.reshape(-1, 2)
+        # Scale polygon points back to original image size
+        scale_x = self.config.tile_size / mask.shape[1]
+        scale_y = self.config.tile_size / mask.shape[0]
 
-            # Scale polygon points back to original image size
-            scale_x = self.config.tile_size / mask.shape[1]
-            scale_y = self.config.tile_size / mask.shape[0]
+        processed_mask = contour * \
+            np.array([scale_x, scale_y], dtype=np.float32)
 
-            processed_mask = contour * \
-                np.array([scale_x, scale_y], dtype=np.float32)
-            processed_masks.append(processed_mask)
+        return [processed_mask]
 
-        return processed_masks
-
-    def predict(self, image: Path, save_format: str = "geojson", visualize: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> tuple[SPMPrediction]:
+    def predict(self, image: Path, vector_format: str = "geojson", show_viz: bool = False, merge_only_border: bool = True, get_seg_from_binary_mask: bool = False) -> tuple[SPMPrediction]:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
         Args:
             image (Path): Path to the input image for prediction.
-            save_format (str): The format to save the predictions in. Options are "geojson" or "gpkg". Defaults to "geojson".
-            visualize (bool): Whether to visualize the predictions.
+            vector_format (str): The format to save the predictions in. Options are "geojson" or "gpkg". Defaults to "geojson".
+            show_viz (bool): Whether to visualize the predictions.
             merge_only_border (bool): Whether to only merge border predictions.
             get_seg_from_binary_mask (bool): Whether to get segmentation from a binary mask.
 
@@ -269,11 +266,13 @@ class YOLOModel(BaseModel):
             else:
                 merged_polygons = smp.merge()
 
-            if visualize:
-                output_path = image.parent / f"{image.stem}_prediction.png"
-                self.visualize(src, merged_polygons, output_path)
-            if save_format:
-                merged_polygons.save_to_file(format=save_format)
+            if show_viz:
+                viz_dir = Path("predictions/viz")
+                viz_dir.mkdir(parents=True, exist_ok=True)
+                output_path = viz_dir / f"{image.stem}_prediction.png"
+                visualize(src, merged_polygons, output_path)
+            if vector_format:
+                merged_polygons.save_to_file(format=vector_format)
 
         return merged_polygons, prediction
 

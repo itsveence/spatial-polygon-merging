@@ -140,11 +140,20 @@ class SPMPrediction:
     def save_to_file(self, format: str = "geojson", name: str = None) -> None:
         """Save the SPMPrediction as a GeoJSON file."""
         format = format.lower()
+
         if format not in ["geojson", "gpkg"]:
             raise ValueError(f"Unsupported format: {format}")
         
-        output_path = Path(f"{name}.{format}") if name else self.image_path.with_suffix(
-                f".{format}") if self.image_path else Path(f"prediction.{format}")
+        dir = Path(f"predictions/{format}")
+        dir.mkdir(parents=True, exist_ok=True)
+
+        file_name = (
+            Path(f"{name}.{format}") if name else 
+            Path(f"{self.image_path.stem}.{format}") if self.image_path else 
+            Path(f"prediction.{format}")
+            )
+        
+        output_path = dir / file_name
         
         if format == "geojson":
             geojson_dict = self._to_geojson()

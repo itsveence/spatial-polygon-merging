@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Union
 
+import numpy as np
 from sahi.prediction import ObjectPrediction
 from spatial_mask_merging.smm.predictions import SMMPrediction
 
@@ -72,7 +73,7 @@ class PredictionAdapter:
         self.spm_prediction = SPMPrediction(
             names=[pred.category.name for pred in self.sahi_prediction.predictions],
             segmentations=[pred.mask for pred in self.sahi_prediction.predictions],
-            polygons=[xy_mask_to_polygon([pred.mask]) for pred in self.sahi_prediction.predictions],
+            polygons=[xy_mask_to_polygon([np.array(seg).reshape(-1, 2) for seg in pred.mask.segmentation]) for pred in self.sahi_prediction.predictions],
             bboxes=[pred.bbox.to_xyxy() for pred in self.sahi_prediction.predictions],
             class_ids=[pred.category.id for pred in self.sahi_prediction.predictions],
             confidences=[pred.score.value for pred in self.sahi_prediction.predictions],
