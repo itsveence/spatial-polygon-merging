@@ -57,7 +57,7 @@ class PredictionAdapter:
         self.spm_prediction = SPMPrediction(
             names=[ann.type for ann in self.smm_prediction.annotations],
             segmentations=[ann.segmentation for ann in self.smm_prediction.annotations],
-            polygons=[xy_mask_to_polygon([ann.segmentation]) for ann in self.smm_prediction.annotations],
+            polygons=[xy_mask_to_polygon(ann.segmentation) for ann in self.smm_prediction.annotations],
             bboxes=[ann.bbox for ann in self.smm_prediction.annotations],
             class_ids=[ann.class_id for ann in self.smm_prediction.annotations],
             confidences=[ann.confidence for ann in self.smm_prediction.annotations],

@@ -6,7 +6,7 @@ class ModelConfig:
     model_path: str = field(default_factory=str)
     device: str = "cuda"  # or "cpu"
     batch_size: int = 4
-    confidence_threshold: float = 0.25
+    confidence_threshold: float = 0.3
     iou_threshold: float = 0.5
 
     # Inference parameters
