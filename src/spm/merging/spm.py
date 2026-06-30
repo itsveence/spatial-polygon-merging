@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from collections import deque
 from shapely import MultiPolygon, Polygon, STRtree
+
 from spm.config.config import SPMConfig
 from spm.core.prediction import SPMPrediction
 from spm.utils.profiling import size_it, time_it
@@ -41,12 +43,7 @@ class SpatialPolygonMerger:
 
     @staticmethod
     def _segmentation_from_geometry(geometry: Polygon | MultiPolygon) -> list[list[tuple[float, float]]]:
-        """
-        Extract exterior-ring coordinates as a segmentation list.
-
-        unary_union may return a Polygon (contiguous fragments) or a
-        MultiPolygon (disconnected fragments); return one ring per part.
-        """
+        """Extract exterior-ring coordinates as a segmentation list."""
         if isinstance(geometry, MultiPolygon):
             return [list(part.exterior.coords) for part in geometry.geoms]
         return [list(geometry.exterior.coords)]
@@ -95,7 +92,6 @@ class SpatialPolygonMerger:
         for cand_idx in self._query(poly_idx):
             if cand_idx == poly_idx:
                 continue
-            # if self.should_merge(poly_idx, cand_idx):
             if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
                 neighbors_to_merge.add(cand_idx)
                 queue.append((cand_idx, 1))
@@ -108,7 +104,6 @@ class SpatialPolygonMerger:
             for cand_idx in self._query(node_idx):
                 if cand_idx in neighbors_to_merge:
                     continue
-                # if self.should_merge(node_idx, cand_idx):
                 if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
                     neighbors_to_merge.add(cand_idx)
                     queue.append((cand_idx, depth + 1))
@@ -134,8 +129,11 @@ class SpatialPolygonMerger:
             image_path=self.annotations.image_path, image_shape=self.annotations.image_shape)
         unmerged_annotations = SPMPrediction(
             image_path=self.annotations.image_path, image_shape=self.annotations.image_shape)
+        
+        # If no specific polygon indices are provided, consider all polygons for merging
         if poly_idxs is None:
             poly_idxs = list(range(len(self.annotations.polygons)))
+        
         polygon_index = set(poly_idxs)  # Keep track of original indices
         undermerged_idxs = set(range(len(self.annotations.polygons)))
 
@@ -143,6 +141,7 @@ class SpatialPolygonMerger:
             idx = polygon_index.pop()
             neighbors = self.find_neighbors(idx)
             logger.debug(f"Polygon {idx} has neighbors to merge: {neighbors}")
+
             if len(neighbors) <= 1:
                 continue
 

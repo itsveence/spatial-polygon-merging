@@ -2,23 +2,7 @@ import rasterio
 
 
 def pixel_to_geo(transform, x, y):
-        """
-        Convert pixel coordinates to geographic coordinates.
-
-        Parameters
-        ----------
-        transform : Affine
-            Affine transformation from rasterio.
-        x : int
-            Pixel x-coordinate.
-        y : int
-            Pixel y-coordinate.
-
-        Returns
-        -------
-        geo_x, geo_y : float
-            Geographic coordinates.
-        """
+        """Convert pixel coordinates to geographic coordinates using affine transformation."""
         geo_x, geo_y = transform * (x, y)
         return geo_x, geo_y
 
