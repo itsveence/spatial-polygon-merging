@@ -25,6 +25,8 @@ class SPMPrediction:
     image_path: Path = None
     image_shape: tuple[int, int] = None  # (height, width)
 
+    seam_prediction_idxs: list[int] = field(default_factory=list)
+
     def add_annotation(self, name: str = None, class_id: int = None, confidence: float = None, bbox: tuple[float] = None, segmentation: list[list[tuple[float]]] = None, polygon: Polygon = None):
         if polygon is None:
             # Assuming segmentation is a list of lists of (x, y) tuples
@@ -137,14 +139,14 @@ class SPMPrediction:
             "features": features,
         }
 
-    def save_to_file(self, format: str = "geojson", name: str = None) -> None:
+    def save_to_file(self, format: str = "gpkg", name: str = None, output_dir: Path = None) -> None:
         """Save the SPMPrediction as a GeoJSON file."""
         format = format.lower()
 
         if format not in ["geojson", "gpkg"]:
             raise ValueError(f"Unsupported format: {format}")
         
-        dir = Path(f"predictions/{format}")
+        dir = Path(f"predictions/{format}") if not output_dir else Path(output_dir) / "predictions" / format
         dir.mkdir(parents=True, exist_ok=True)
 
         file_name = (

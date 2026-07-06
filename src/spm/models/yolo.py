@@ -51,16 +51,16 @@ class YOLOModel(BaseModel):
     def predict(
             self,
             image: Path,
-            merge: bool = True,
-            merge_only_border: bool = True,
-            get_seg_from_binary_mask: bool = False
+            merge: bool = False,
+            merge_only_seam: bool = False,
+            get_seg_from_binary_mask: bool = True
             ) -> SPMPrediction:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
         Args:
             image (Path): Path to the input image for prediction.
             merge (bool): Whether to merge overlapping predictions using SPM.
-            merge_only_border (bool): Whether to only merge border predictions (Ignored if merge is False).
+            merge_only_seam (bool): Whether to only merge seam predictions (Ignored if merge is False).
             get_seg_from_binary_mask (bool): Whether to get segmentation from a binary mask.
 
         Returns:
@@ -71,7 +71,7 @@ class YOLOModel(BaseModel):
 
         prediction = SPMPrediction(image_path=image)
 
-        border_prediction_idxs: list[int] = []
+        seam_prediction_idxs: list[int] = []
 
         with rasterio.open(image) as src:
 
@@ -154,7 +154,7 @@ class YOLOModel(BaseModel):
                             _mask[seg_idx][:, 0] = (_mask[seg_idx][:, 0] + tile_x)
                             _mask[seg_idx][:, 1] = (_mask[seg_idx][:, 1] + tile_y)
 
-                        if merge and is_overlap_candidate(
+                        if is_overlap_candidate(
                                 bbox=bboxes[j],
                                 tile_size=self.config.tile_size,
                                 overlap=tile_overlap,
@@ -162,7 +162,7 @@ class YOLOModel(BaseModel):
                                 img_width=img_width,
                                 img_height=img_height
                         ):
-                            border_prediction_idxs.append(prediction_idx)
+                            seam_prediction_idxs.append(prediction_idx)
 
                         prediction.add_annotation(
                             name=names[_cls],
@@ -174,14 +174,16 @@ class YOLOModel(BaseModel):
                         prediction_idx += 1
 
             logger.info(f"Total tiles processed: {tile_counter}")
+            
+            prediction.seam_prediction_idxs = seam_prediction_idxs  # Store seam prediction indices in the prediction object
 
             if merge:
-                # Merge border predictions using SPM
+                # Merge seam predictions using SPM
                 smp = SpatialPolygonMerger()
                 smp.index(prediction)
 
-                if merge_only_border:
-                    prediction = smp.merge(border_prediction_idxs)
+                if merge_only_seam:
+                    prediction = smp.merge(prediction.seam_prediction_idxs)
                 else:
                     prediction = smp.merge()
 

@@ -5,7 +5,6 @@ from shapely import MultiPolygon, Polygon, STRtree
 
 from spm.config.config import SPMConfig
 from spm.core.prediction import SPMPrediction
-from spm.utils.profiling import size_it, time_it
 from spm.utils.logger import logger
 
 
@@ -16,7 +15,6 @@ class SpatialPolygonMerger:
         self.annotations: SPMPrediction = None
         self.query_cache: dict[int, list[int]] = {}
 
-    @time_it
     def index(self, annotations: SPMPrediction):
         """Creates a spatial index (STRtree) for the given list of polygons."""
         logger.info("Indexing polygons for merging")
@@ -99,19 +97,16 @@ class SpatialPolygonMerger:
         # Transitive: each new merge increments depth from its parent
         while queue:
             node_idx, depth = queue.popleft()
-            if depth >= self.config.tau_chain:
-                continue
-            for cand_idx in self._query(node_idx):
-                if cand_idx in neighbors_to_merge:
-                    continue
-                if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
-                    neighbors_to_merge.add(cand_idx)
-                    queue.append((cand_idx, depth + 1))
+            if depth < self.config.tau_chain:
+                for cand_idx in self._query(node_idx):
+                    if cand_idx in neighbors_to_merge:
+                        continue
+                    if self.annotations.class_ids[poly_idx] == self.annotations.class_ids[cand_idx]:
+                        neighbors_to_merge.add(cand_idx)
+                        queue.append((cand_idx, depth + 1))
 
         return neighbors_to_merge
 
-    @size_it
-    @time_it
     def merge(self, poly_idxs: list[int] = None) -> SPMPrediction:
         """
         Merges polygons based on distance thresholds.
@@ -123,7 +118,7 @@ class SpatialPolygonMerger:
         if self.annotations is None:
             raise ValueError("No polygons to merge. Call index() first.")
         
-        logger.info(f"Starting merge process with {len(self.annotations.polygons)} polygons.")
+        # logger.info(f"Starting merge process with {len(self.annotations.polygons)} polygons.")
 
         merged_annotations = SPMPrediction(
             image_path=self.annotations.image_path, image_shape=self.annotations.image_shape)
@@ -152,17 +147,19 @@ class SpatialPolygonMerger:
 
             for neighbor_idx in neighbors:
                 if (
-                    neighbor_idx in polygon_index and
+                    neighbor_idx in undermerged_idxs and
                     self.annotations.class_ids[idx] == self.annotations.class_ids[neighbor_idx]
                 ):
                     polygons_to_merge.append(neighbor_idx)
-                    
+
                     score_sum += self.annotations.confidences[neighbor_idx]
                     score_count += 1
 
                     polygon_index.discard(neighbor_idx)
                     undermerged_idxs.discard(neighbor_idx)
 
+            if len(polygons_to_merge) == 1:
+                continue
             
             merged_polygon = self.merge_polygons(
                 [self.annotations.polygons[i] for i in polygons_to_merge])
@@ -191,11 +188,11 @@ class SpatialPolygonMerger:
                 bbox=self.annotations.bboxes[idx]
             )
 
-        logger.info(
+        logger.debug(
             f"Total merged polygons: {len(merged_annotations.polygons)}")
-        logger.info(
+        logger.debug(
             f"Total unmerged polygons: {len(unmerged_annotations.polygons)}")
-        logger.info(
+        logger.debug(
             f"Total polygons after merging: {len(merged_annotations.polygons) + len(unmerged_annotations.polygons)}")
 
         combined_annotations = SPMPrediction(
