@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import io
 from dataclasses import dataclass
 from pathlib import Path
 from functools import cache
@@ -9,25 +7,14 @@ from functools import cache
 import geopandas as gpd
 import numpy as np
 import rasterio
-from pycocotools import mask as mask_utils
-
-try:
-    # faster-coco-eval reimplements evaluateImg/accumulate in C++ (~30x faster
-    # than pycocotools) with identical metrics; fall back to pycocotools if unavailable.
-    import logging
-
-    from faster_coco_eval import COCO
-    from faster_coco_eval import COCOeval_faster as COCOeval
-
-    # Set logging level to WARNING to suppress info messages from faster_coco_eval
-    logging.getLogger("faster_coco_eval").setLevel(logging.WARNING)
-except ImportError:
-    from pycocotools.coco import COCO
-    from pycocotools.cocoeval import COCOeval
-
-from shapely.geometry import MultiPolygon, Polygon
+from shapely import STRtree, make_valid
+from shapely.geometry import base as shapely_base
 
 from spm import SPMPrediction
+
+# COCO IoU sweep: 0.50, 0.55, ..., 0.95. Index 0 -> mAP50, index 5 -> mAP75.
+_IOU_THRESHOLDS = np.round(np.arange(0.5, 1.0, 0.05), 2)
+_REC_THRESHOLDS = np.linspace(0.0, 1.0, 101)
 
 
 @dataclass
@@ -42,17 +29,17 @@ class MergeMetrics:
     recall: float
     f1: float
 
-def _polygon_to_rle(polygon: Polygon | MultiPolygon, height: int, width: int):
-    parts = polygon.geoms if isinstance(polygon, MultiPolygon) else [polygon]
-    coords = [np.asarray(p.exterior.coords).ravel().tolist()
-              for p in parts if not p.is_empty and len(p.exterior.coords) >= 3]
-    if not coords:
+
+def _clean(geom) -> shapely_base.BaseGeometry | None:
+    if geom is None or geom.is_empty:
         return None
-    rles = mask_utils.frPyObjects(coords, height, width)
-    return mask_utils.merge(rles)
+    if not geom.is_valid:
+        geom = make_valid(geom)
+    return None if geom.is_empty or geom.area == 0 else geom
+
 
 @cache
-def _ground_truth_polygons(label_path: Path, image_path: Path) -> list[Polygon]:
+def _ground_truth_polygons(label_path: Path, image_path: Path) -> list:
     """Load GPKG labels and project them into the crop's pixel coordinates."""
     with rasterio.open(image_path) as src:
         inverse = ~src.transform
@@ -63,134 +50,141 @@ def _ground_truth_polygons(label_path: Path, image_path: Path) -> list[Polygon]:
     from shapely.ops import transform
 
     labels = gpd.read_file(label_path)
-    polygons: list[Polygon] = []
+    polygons = []
     for geom in labels.geometry:
-        if geom is None or geom.is_empty:
+        cleaned = _clean(geom)
+        if cleaned is None:
             continue
-        parts = geom.geoms if geom.geom_type == "MultiPolygon" else [geom]
+        parts = cleaned.geoms if cleaned.geom_type == "MultiPolygon" else [cleaned]
         for part in parts:
             polygons.append(transform(to_pixels, part))
     return polygons
 
 
-def _rle_entry(rle):
-    counts = rle["counts"]
-    return {"size": rle["size"], "counts": counts.decode("ascii") if isinstance(counts, bytes) else counts}
+def _candidate_ious(dt_polygons, gt_polygons) -> list[list[tuple[float, int]]]:
+    """For each detection, the (iou, gt_index) pairs of GTs whose envelopes overlap.
 
-
-def evaluate_prediction(
-    prediction: SPMPrediction,
-    label_path: str | Path,
-    iou_threshold: float = 0.5,
-) -> MergeMetrics:
-    """Score a merged prediction against ground-truth labels with pycocotools.
-
-    mAP/mAP50/mAP75 come from COCOeval (segm). Precision, recall and F1 are computed
-    at ``iou_threshold`` by greedy score-ordered matching on the same RLE masks.
+    An STRtree over the GT polygons restricts the exact geometric IoU to
+    spatially-overlapping candidates, so cost scales with local density rather
+    than the full N_dt x N_gt grid. IoU is computed directly on the polygon
+    geometries (intersection area / union area) — no rasterization.
     """
-    height, width = prediction.image_shape
-    gt_polygons = _ground_truth_polygons(Path(label_path), Path(prediction.image_path))
-
-    gt_rles = [r for r in (_polygon_to_rle(p, height, width) for p in gt_polygons) if r]
-
-    order = np.argsort(prediction.confidences)[::-1] if prediction.count else []
-    dt_rles, dt_scores = [], []
-    for i in order:
-        rle = _polygon_to_rle(prediction.polygons[i], height, width)
-        if rle is None:
-            continue
-        dt_rles.append(rle)
-        dt_scores.append(float(prediction.confidences[i]))
-
-    precision, recall, f1 = _prf(dt_rles, gt_rles, iou_threshold)
-    mAP, mAP50, mAP75 = _coco_map(dt_rles, dt_scores, gt_rles, height, width)
-
-    return MergeMetrics(
-        num_gt=len(gt_rles), num_pred=len(dt_rles),
-        mAP=mAP, mAP50=mAP50, mAP75=mAP75,
-        precision=precision, recall=recall, f1=f1,
-    )
-
-
-def _prf(dt_rles, gt_rles, iou_threshold) -> tuple[float, float, float]:
-    if not gt_rles and not dt_rles:
-        return 1.0, 1.0, 1.0
-    if not dt_rles:
-        return 0.0, 0.0, 0.0
-    if not gt_rles:
-        return 0.0, 0.0, 0.0
-
-    ious = mask_utils.iou(dt_rles, gt_rles, [0] * len(gt_rles))
-    matched_gt: set[int] = set()
-    tp = 0
-    for d in range(len(dt_rles)):
-        best_iou, best_g = iou_threshold, -1
-        for g in range(len(gt_rles)):
-            if g in matched_gt:
+    if not gt_polygons:
+        return [[] for _ in dt_polygons]
+    tree = STRtree(gt_polygons)
+    candidates: list[list[tuple[float, int]]] = []
+    for dt in dt_polygons:
+        pairs: list[tuple[float, int]] = []
+        for g in tree.query(dt):  # envelope-intersection candidates
+            gt = gt_polygons[int(g)]
+            inter = dt.intersection(gt).area
+            if inter <= 0.0:
                 continue
-            if ious[d, g] >= best_iou:
-                best_iou, best_g = ious[d, g], g
+            union = dt.area + gt.area - inter
+            if union > 0.0:
+                pairs.append((inter / union, int(g)))
+        candidates.append(pairs)
+    return candidates
+
+
+def _prf(candidates, num_gt, iou_threshold) -> tuple[float, float, float]:
+    """Greedy score-ordered matching at a single IoU threshold."""
+    if num_gt == 0 and not candidates:
+        return 1.0, 1.0, 1.0
+    if not candidates or num_gt == 0:
+        return 0.0, 0.0, 0.0
+
+    matched: set[int] = set()
+    tp = 0
+    for pairs in candidates:  # candidates are in descending-score order
+        best_iou, best_g = iou_threshold, -1
+        for iou, g in pairs:
+            if g in matched:
+                continue
+            if iou >= best_iou:
+                best_iou, best_g = iou, g
         if best_g >= 0:
-            matched_gt.add(best_g)
+            matched.add(best_g)
             tp += 1
 
-    fp = len(dt_rles) - tp
-    fn = len(gt_rles) - tp
+    fp = len(candidates) - tp
+    fn = num_gt - tp
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     return precision, recall, f1
 
 
-def _coco_map(dt_rles, dt_scores, gt_rles, height, width) -> tuple[float, float, float]:
-    if not gt_rles:
+def _average_precision(candidates, num_gt) -> tuple[float, float, float]:
+    """COCO-style AP over the IoU sweep, computed from the pruned candidate pairs.
+
+    Detections are assumed pre-sorted by descending score. Returns (mAP, mAP50, mAP75).
+    """
+    if num_gt == 0 or not candidates:
         return 0.0, 0.0, 0.0
 
-    gt = {
-        "images": [{"id": 1, "height": height, "width": width}],
-        "categories": [{"id": 1, "name": "object"}],
-        "annotations": [
-            {"id": i + 1, "image_id": 1, "category_id": 1, "iscrowd": 0,
-             "segmentation": _rle_entry(r), "area": float(mask_utils.area(r)),
-             "bbox": mask_utils.toBbox(r).tolist()}
-            for i, r in enumerate(gt_rles)
-        ],
-    }
-    detections = [
-        {"image_id": 1, "category_id": 1, "score": dt_scores[i],
-         "segmentation": _rle_entry(r), "bbox": mask_utils.toBbox(r).tolist()}
-        for i, r in enumerate(dt_rles)
-    ]
+    n = len(candidates)
+    aps = np.zeros(len(_IOU_THRESHOLDS))
+    for t_idx, t in enumerate(_IOU_THRESHOLDS):
+        tp = np.zeros(n)
+        fp = np.zeros(n)
+        matched: set[int] = set()
+        for d, pairs in enumerate(candidates):
+            best_iou, best_g = t, -1
+            for iou, g in pairs:
+                if g in matched:
+                    continue
+                if iou >= best_iou:
+                    best_iou, best_g = iou, g
+            if best_g >= 0:
+                matched.add(best_g)
+                tp[d] = 1
+            else:
+                fp[d] = 1
 
-    with contextlib.redirect_stdout(io.StringIO()):
-        coco_gt = COCO()
-        coco_gt.dataset = gt
-        coco_gt.createIndex()
-        coco_dt = coco_gt.loadRes(detections) if detections else COCO()
+        tp_cum = np.cumsum(tp)
+        fp_cum = np.cumsum(fp)
+        recall = tp_cum / num_gt
+        precision = tp_cum / np.maximum(tp_cum + fp_cum, 1e-9)
+        # Monotonic precision envelope from the right, as in COCO's accumulate.
+        precision = np.maximum.accumulate(precision[::-1])[::-1]
 
-        if not detections:
-            return 0.0, 0.0, 0.0
+        idx = np.searchsorted(recall, _REC_THRESHOLDS, side="left")
+        interp = np.zeros(len(_REC_THRESHOLDS))
+        valid = idx < n
+        interp[valid] = precision[idx[valid]]
+        aps[t_idx] = interp.mean()
 
-        coco_eval = COCOeval(coco_gt, coco_dt, "segm")
-        # Default maxDets caps evaluation at the top-100 detections, which
-        # underestimates mAP on dense crops with hundreds of objects.
-        coco_eval.params.maxDets = [1, 10, max(len(dt_rles), 100)]
-        coco_eval.params.areaRng = [coco_eval.params.areaRng[0]]   # keep only "all"
-        coco_eval.params.areaRngLbl = ["all"]
-        coco_eval.evaluate()
-        coco_eval.accumulate()
+    return float(aps.mean()), float(aps[0]), float(aps[5])
 
-    # Read AP directly from the precision array rather than summarize(), whose
-    # mAP line hardcodes a maxDets=100 lookup that breaks once we raise the cap.
-    # precision shape: [iouThr, recThr, cat, areaRng, maxDet]; index 0 of
-    # areaRng = "all", index -1 of maxDet = our raised cap.
-    precision = coco_eval.eval["precision"][:, :, :, 0, -1]
+def evaluate_prediction(
+    prediction: SPMPrediction,
+    label_path: str | Path,
+    iou_threshold: float = 0.5,
+) -> MergeMetrics:
+    """Score a merged prediction against ground-truth labels using polygon IoU.
 
-    def _mean_ap(p):
-        valid = p[p > -1]
-        return float(valid.mean()) if valid.size else 0.0
+    mAP/mAP50/mAP75 follow the COCO AP protocol; precision/recall/F1 use greedy
+    score-ordered matching at ``iou_threshold``. IoU is computed directly on the
+    polygon geometries, with candidate pairs pre-filtered by an STRtree over the
+    ground-truth polygons so exact IoU is only evaluated for spatially-overlapping
+    objects.
+    """
+    gt_polygons = _ground_truth_polygons(Path(label_path), Path(prediction.image_path))
 
-    mAP = _mean_ap(precision)            # IoU 0.50:0.95
-    mAP50 = _mean_ap(precision[0])       # IoU 0.50
-    mAP75 = _mean_ap(precision[5])       # IoU 0.75
-    return mAP, mAP50, mAP75
+    order = np.argsort(prediction.confidences)[::-1] if prediction.count else []
+    dt_polygons = []
+    for i in order:
+        cleaned = _clean(prediction.polygons[i])
+        if cleaned is not None:
+            dt_polygons.append(cleaned)
+
+    candidates = _candidate_ious(dt_polygons, gt_polygons)
+    precision, recall, f1 = _prf(candidates, len(gt_polygons), iou_threshold)
+    mAP, mAP50, mAP75 = _average_precision(candidates, len(gt_polygons))
+
+    return MergeMetrics(
+        num_gt=len(gt_polygons), num_pred=len(dt_polygons),
+        mAP=mAP, mAP50=mAP50, mAP75=mAP75,
+        precision=precision, recall=recall, f1=f1,
+    )

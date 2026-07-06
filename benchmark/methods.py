@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+from pathlib import Path
+import queue as mp_queues
 import threading
 import time
 from typing import Callable
@@ -60,15 +62,18 @@ def _merge_worker(fn: MergeFn, unmerged: SPMPrediction, args: tuple,
     baseline = proc.memory_info().rss
     monitor.start()
     try:
-        start_time = time.perf_counter()
-        merged = fn(unmerged, *args, **kwargs)
-        time_elapsed = time.perf_counter() - start_time
+        merged, merge_time = fn(unmerged, *args, **kwargs)
+    except Exception as exc:
+        # Ship the failure to the parent instead of dying silently, which
+        # would leave the parent blocked on queue.get() forever.
+        queue.put(RuntimeError(f"{type(exc).__name__}: {exc}"))
+        return
     finally:
         stop.set()
         monitor.join()
 
     peak_bytes = max(peak_holder[0] - baseline, 0)
-    queue.put((merged, time_elapsed, peak_bytes / (1024 * 1024)))
+    queue.put((merged, merge_time, peak_bytes / (1024 * 1024)))
 
 
 class MergingMethod:
@@ -86,11 +91,6 @@ class MergingMethod:
         self._kwargs = kwargs
 
     def merge(self, unmerged: SPMPrediction) -> tuple[SPMPrediction, float, float]:
-        # Isolate each merge in a child process so the peak-RSS measurement
-        # (which captures C-extension memory) starts from identical state and
-        # isn't affected by allocations left resident by previous methods.
-        # "spawn" rather than "fork" because the parent has CUDA initialized
-        # for inference, which a fork cannot inherit safely.
         ctx = mp.get_context("spawn")
         queue = ctx.Queue()
         worker = ctx.Process(
@@ -98,12 +98,25 @@ class MergingMethod:
             args=(self._fn, unmerged, self._args, self._kwargs, queue),
         )
         worker.start()
-        merged, time_elapsed, peak_memory_usage = queue.get()
+        # Poll rather than block: if the child is killed outright (e.g. the
+        # kernel OOM killer), nothing is ever put on the queue.
+        while True:
+            try:
+                payload = queue.get(timeout=1.0)
+                break
+            except mp_queues.Empty:
+                if not worker.is_alive():
+                    raise RuntimeError(
+                        f"merge worker for '{self.name}' died with exit code "
+                        f"{worker.exitcode} without returning a result")
         worker.join()
+        if isinstance(payload, Exception):
+            raise payload
+        merged, merge_time, peak_memory_usage = payload
 
         merged.image_path = unmerged.image_path
         merged.image_shape = unmerged.image_shape
-        return merged, time_elapsed, peak_memory_usage
+        return merged, merge_time, peak_memory_usage
 
 
 def _frame_shape(prediction: SPMPrediction) -> tuple[int, int]:
@@ -134,31 +147,47 @@ def _add_mask_annotation(prediction: SPMPrediction, mask: np.ndarray, name, clas
         segmentation=segmentation)
 
 
-def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_only_seam: bool = False) -> SPMPrediction:
+def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_only_seam: bool = False) -> tuple[SPMPrediction, float]:
     merger = SpatialPolygonMerger(config)
     merger.index(unmerged)
+    start_time = time.perf_counter()
     if merge_only_seam:
-        return merger.merge(unmerged.seam_prediction_idxs)
+        merged =  merger.merge(unmerged.seam_prediction_idxs)
     else:
-        return merger.merge()
+        merged = merger.merge()
+    merge_time = time.perf_counter() - start_time
+    return merged, merge_time
 
 
-def merge_smm(unmerged: SPMPrediction, **params) -> SPMPrediction:
+
+def merge_smm(unmerged: SPMPrediction, **params) -> tuple[SPMPrediction, float]:
     from spatial_mask_merging.smm.smm import SpatialMaskMerger
     from utils.adapters import PredictionAdapter
 
     height, width = _frame_shape(unmerged)
     smm_prediction = PredictionAdapter(unmerged).smm
-    merged_objects = SpatialMaskMerger(**params).merge(smm_prediction, image_size_hw=(height, width))
+    smm = SpatialMaskMerger(
+        tau_d=params.get("tau_d", 5.0),
+        tau_i=params.get("tau_i", 0.5),
+        rho=params.get("rho", 10.0),
+        beta1=params.get("beta1", 0.3),
+        beta2=params.get("beta2", 0.5),
+        beta3=params.get("beta3", 0.2),
+        gamma=params.get("gamma", 0.5),
+        lambda_=params.get("lambda_", 0.5)
+        )
+    start_time = time.perf_counter()
+    merged_objects = smm.merge(smm_prediction, image_size_hw=(height, width))
+    merge_time = time.perf_counter() - start_time
 
     result = SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape)
     for obj in merged_objects:
         _add_mask_annotation(result, obj["mask"], obj["label"], 0, obj["score"])
-    return result
+    return result, merge_time
 
 
 def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.5,
-               match_metric: str = "IOU", merger: str = "NMM") -> SPMPrediction:
+               match_metric: str = "IOU", merger: str = "NMM") -> tuple[SPMPrediction, float]:
     from sahi.postprocess.combine import GreedyNMMPostprocess, NMMPostprocess, NMSPostprocess, LSNMSPostprocess
     from sahi.postprocess.backends import set_postprocess_backend
     from utils.adapters import PredictionAdapter, SAHIPrediction
@@ -170,22 +199,25 @@ def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.5,
         match_threshold=match_threshold, match_metric=match_metric, class_agnostic=False)
 
     sahi_prediction = PredictionAdapter(unmerged).sahi
+
+    start_time = time.perf_counter()
     merged = postprocess(sahi_prediction.predictions)
+    merge_time = time.perf_counter() - start_time
 
     adapter = PredictionAdapter(SAHIPrediction(predictions=merged))
     result = adapter.spm
     result.image_path = unmerged.image_path
     result.image_shape = unmerged.image_shape
-    return result
+    return result, merge_time
 
 
 def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
-                      merge: bool = True) -> SPMPrediction:
+                      merge: bool = True) -> tuple[SPMPrediction, float]:
     import supervision as sv
 
     height, width = _frame_shape(unmerged)
     if unmerged.count == 0:
-        return SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape)
+        return SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape), 0.0
 
     masks = np.stack([_rasterize(p, height, width).astype(bool) for p in unmerged.polygons])
     detections = sv.Detections(
@@ -194,15 +226,28 @@ def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
         confidence=np.asarray(unmerged.confidences, dtype=np.float32),
         class_id=np.asarray(unmerged.class_ids, dtype=int),
     )
+
+    start_time = time.perf_counter()
     detections = detections.with_nmm(iou_threshold) if merge else detections.with_nms(iou_threshold)
+    merge_time = time.perf_counter() - start_time
 
     result = SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape)
     for i in range(len(detections)):
         class_id = int(detections.class_id[i])
         name = unmerged.names[unmerged.class_ids.index(class_id)] if class_id in unmerged.class_ids else str(class_id)
         _add_mask_annotation(result, detections.mask[i].astype(np.uint8), name, class_id, detections.confidence[i])
-    return result
+    return result, merge_time
 
+smm_params = {
+        "tau_d":5.0,      # Distance threshold (pixels)
+        "tau_i":0.5,       # IoU threshold
+        "rho":10.0,        # R-tree search radius (pixels)
+        "beta1":0.3,       # Distance weight
+        "beta2":0.5,       # IoU weight
+        "beta3":0.2,       # Confidence weight
+        "gamma":0.5,       # Anti-chaining threshold
+        "lambda_":0.5      # Clustering penalty
+    }
 
 MERGING_METHODS: dict[str, MergingMethod] = {
     "spm_seam_only": MergingMethod("spm_seam_only", merge_spm, merge_only_seam=True),
@@ -211,5 +256,5 @@ MERGING_METHODS: dict[str, MergingMethod] = {
     "sahi_nmm": MergingMethod("sahi_nmm", merge_sahi, merger="NMM"),
     "sahi_greedy_nmm": MergingMethod("sahi_greedy_nmm", merge_sahi, merger="GREEDYNMM"),
     "sahi_lsnms": MergingMethod("sahi_lsnms", merge_sahi, merger="LSNMS"),
-    "smm": MergingMethod("smm", merge_smm)
+    "smm": MergingMethod("smm", merge_smm, **smm_params),
 }

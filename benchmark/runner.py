@@ -24,6 +24,7 @@ def benchmark_test_set(
     methods: list[MergingMethod] | None = None,
     iou_threshold: float = 0.5,
     output_csv: str | Path | None = None,
+    crop_limit: int | None = None,
 ) -> list[dict]:
     """Evaluate every merging method on every crop of a generated test set.
 
@@ -38,7 +39,9 @@ def benchmark_test_set(
     model = YOLOModel(model_config)
 
     rows: list[dict] = []
-    crops = sorted(test_set_dir.glob("crop_100000_*"))
+    crops = sorted(test_set_dir.glob("crop_*"))
+    if crop_limit is not None:
+        crops = crops[:crop_limit]
     logger.info(f"Benchmarking {len(crops)} crops with {len(methods)} methods")
 
     for crop_dir in crops:
@@ -52,7 +55,9 @@ def benchmark_test_set(
 
         for method in methods:
             try:
-                merged, time_elapsed, peak_memory_usage = method.merge(unmerged)
+                pred_output_dir = crop_dir / method.name
+                merged, merge_time, peak_memory_usage = method.merge(unmerged)
+                merged.save_to_file(output_dir=pred_output_dir)
                 metrics = evaluate_prediction(merged, label_path, iou_threshold)
             except Exception as exc:
                 logger.error(f"{method.name} failed on {crop_dir.name}: {exc}")
@@ -62,7 +67,7 @@ def benchmark_test_set(
                 "crop": crop_dir.name,
                 "crop_size": crop_size,
                 "method": method.name,
-                "time_elapsed": time_elapsed,
+                "merge_time": merge_time,
                 "peak_memory_usage": peak_memory_usage,
                 **asdict(metrics),
             })
@@ -70,7 +75,7 @@ def benchmark_test_set(
                 f"{crop_dir.name} / {method.name}: "
                 f"mAP={metrics.mAP:.3f} P={metrics.precision:.3f} "
                 f"R={metrics.recall:.3f} F1={metrics.f1:.3f} "
-                f"time_elapsed={time_elapsed:.3f}s peak_memory_usage={peak_memory_usage:.3f}MiB"
+                f"merge_time={merge_time:.3f}s peak_memory_usage={peak_memory_usage:.3f}MiB"
                 )
 
     if output_csv and rows:
