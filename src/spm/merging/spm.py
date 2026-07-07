@@ -177,8 +177,9 @@ class SpatialPolygonMerger:
             undermerged_idxs.discard(idx)
 
         # Get unmerged annotations that were not part of any merge
-        for idx in undermerged_idxs:
-            unmerged_annotations.add_annotation(
+        while undermerged_idxs:
+            idx = undermerged_idxs.pop()
+            merged_annotations.add_annotation(
                 polygon=self.annotations.polygons[idx],
                 segmentation=self._segmentation_from_geometry(
                     self.annotations.polygons[idx]),
@@ -187,24 +188,10 @@ class SpatialPolygonMerger:
                 confidence=self.annotations.confidences[idx],
                 bbox=self.annotations.bboxes[idx]
             )
+        merged_annotations.image_path = self.annotations.image_path
+        merged_annotations.image_shape = self.annotations.image_shape
 
         logger.debug(
-            f"Total merged polygons: {len(merged_annotations.polygons)}")
-        logger.debug(
-            f"Total unmerged polygons: {len(unmerged_annotations.polygons)}")
-        logger.debug(
-            f"Total polygons after merging: {len(merged_annotations.polygons) + len(unmerged_annotations.polygons)}")
+            f"Total polygons after merging: {len(merged_annotations.polygons)}")
 
-        combined_annotations = SPMPrediction(
-            polygons=merged_annotations.polygons + unmerged_annotations.polygons,
-            segmentations=merged_annotations.segmentations +
-            unmerged_annotations.segmentations,
-            class_ids=merged_annotations.class_ids + unmerged_annotations.class_ids,
-            confidences=merged_annotations.confidences + unmerged_annotations.confidences,
-            bboxes=merged_annotations.bboxes + unmerged_annotations.bboxes,
-            names=merged_annotations.names + unmerged_annotations.names,
-            image_path=self.annotations.image_path,
-            image_shape=self.annotations.image_shape
-        )
-
-        return combined_annotations
+        return merged_annotations
