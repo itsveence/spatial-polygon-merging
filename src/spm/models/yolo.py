@@ -8,7 +8,6 @@ from pathlib import Path
 from spm.core.prediction import SPMPrediction
 from spm.merging.spm import SpatialPolygonMerger
 from spm.config import ModelConfig
-from spm.visualization.overlays import visualize
 from spm.models.base_model import BaseModel
 from spm.preprocessing.image_processing import binary_mask_to_contours, stream_tiles_by_batch
 from spm.core.geometry import effective_overlap, is_overlap_candidate
@@ -52,8 +51,7 @@ class YOLOModel(BaseModel):
             self,
             image: Path,
             merge: bool = False,
-            merge_only_seam: bool = False,
-            get_seg_from_binary_mask: bool = True
+            merge_only_seam: bool = False
             ) -> SPMPrediction:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
@@ -116,10 +114,7 @@ class YOLOModel(BaseModel):
                     classes = res.boxes.cls.cpu().numpy().astype(int)
                     confidences = res.boxes.conf.cpu().numpy()
                     names = res.names
-                    masks = (
-                        res.masks.data.cpu().numpy().astype(np.uint8)
-                        if get_seg_from_binary_mask else res.masks.xy
-                    )
+                    masks = res.masks.data.cpu().numpy().astype(np.uint8)
 
                     # Convert tile-relative coordinates to absolute image coordinates
                     abs_bboxes = bboxes.copy()
@@ -137,16 +132,14 @@ class YOLOModel(BaseModel):
                         _bbox = abs_bboxes[j]
                         _mask = masks[j]
 
-                        if get_seg_from_binary_mask:
+                        # Convert binary mask to polygon
+                        _mask = self._process_binary_mask(_mask)
 
-                            # Convert binary mask to polygon
-                            _mask = self._process_binary_mask(_mask)
-
-                            # Sometimes the binary mask may not yield valid contours, so we skip those cases
-                            if _mask is None:
-                                logger.debug(
-                                    f"No valid contours found in binary mask for tile {i} at coordinate {coordinate[i]}")
-                                continue
+                        # Sometimes the binary mask may not yield valid contours, so we skip those cases
+                        if _mask is None:
+                            logger.debug(
+                                f"No valid contours found in binary mask for tile {i} at coordinate {coordinate[i]}")
+                            continue
                         
                         for seg_idx in range(len(_mask)):
 
@@ -192,3 +185,7 @@ class YOLOModel(BaseModel):
     def train(self, dataset):
         # Implement the training logic here
         pass
+
+    def evaluate(self, data: str, split: str = "val") -> dict:
+        metrics = self.model.val(data=data, device=self.config.device, batch=self.config.batch_size, split=split)
+        return metrics

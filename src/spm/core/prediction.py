@@ -146,7 +146,7 @@ class SPMPrediction:
         if format not in ["geojson", "gpkg"]:
             raise ValueError(f"Unsupported format: {format}")
         
-        dir = Path(f"predictions/{format}") if not output_dir else Path(output_dir) / "predictions" / format
+        dir = Path(f"predictions/{format}") if not output_dir else Path(output_dir) / format
         dir.mkdir(parents=True, exist_ok=True)
 
         file_name = (
@@ -171,4 +171,22 @@ class SPMPrediction:
     def count(self):
         """Returns the number of annotations."""
         return len(self.class_ids)
+
+    @property
+    def seam_predictions(self) -> SPMPrediction:
+        """Return a new SPMPrediction containing only the seam predictions."""
+        if not self.seam_prediction_idxs:
+            return SPMPrediction()
+
+        seam_pred = SPMPrediction(
+            names=[self.names[i] for i in self.seam_prediction_idxs],
+            segmentations=[self.segmentations[i] for i in self.seam_prediction_idxs],
+            polygons=[self.polygons[i] for i in self.seam_prediction_idxs],
+            bboxes=[self.bboxes[i] for i in self.seam_prediction_idxs],
+            class_ids=[self.class_ids[i] for i in self.seam_prediction_idxs],
+            confidences=[self.confidences[i] for i in self.seam_prediction_idxs],
+            image_path=self.image_path,
+            image_shape=self.image_shape,
+        )
+        return seam_pred
 
