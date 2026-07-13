@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
-from pathlib import Path
 import queue as mp_queues
 import threading
 import time
 from typing import Callable
+import resource, functools
 
 import cv2
 import numpy as np
@@ -16,6 +16,7 @@ from spm.config.config import SPMConfig
 from spm.core.prediction import SPMPrediction
 from spm.merging.spm import SpatialPolygonMerger
 from spm.preprocessing.image_processing import binary_mask_to_contours
+from spm.utils.logger import logger
 
 MergeFn = Callable[..., SPMPrediction]
 
@@ -23,6 +24,19 @@ MergeFn = Callable[..., SPMPrediction]
 # short native allocation spikes that a coarse sampler would miss.
 _RSS_POLL_INTERVAL = 0.001
 
+def memory_limit(max_gb):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            max_bytes = int(max_gb * 1024**3)
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, hard))
+            try:
+                return func(*args, **kwargs)
+            finally:
+                resource.setrlimit(resource.RLIMIT_AS, (soft, hard))  # restore
+        return wrapper
+    return decorator
 
 def _sample_peak_rss(proc: psutil.Process, stop: threading.Event, out: list) -> None:
     """Track the high-water RSS of ``proc`` until ``stop`` is set."""
@@ -32,6 +46,7 @@ def _sample_peak_rss(proc: psutil.Process, stop: threading.Event, out: list) -> 
             peak = max(peak, proc.memory_info().rss)
         except psutil.Error:
             break
+        time.sleep(_RSS_POLL_INTERVAL)
     out[0] = peak
 
 
@@ -147,7 +162,9 @@ def _add_mask_annotation(prediction: SPMPrediction, mask: np.ndarray, name, clas
         segmentation=segmentation)
 
 
+@memory_limit(40)
 def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_only_seam: bool = False) -> tuple[SPMPrediction, float]:
+    logger.info(f"Running SPM with config: {config}, merge_only_seam={merge_only_seam}")
     merger = SpatialPolygonMerger(config)
     merger.index(unmerged)
     start_time = time.perf_counter()
@@ -159,11 +176,12 @@ def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_on
     return merged, merge_time
 
 
-
+@memory_limit(40)
 def merge_smm(unmerged: SPMPrediction, **params) -> tuple[SPMPrediction, float]:
     from spatial_mask_merging.smm.smm import SpatialMaskMerger
     from utils.adapters import PredictionAdapter
 
+    logger.info(f"Running SMM with parameters: {params}")
     height, width = _frame_shape(unmerged)
     smm_prediction = PredictionAdapter(unmerged).smm
     smm = SpatialMaskMerger(
@@ -186,12 +204,14 @@ def merge_smm(unmerged: SPMPrediction, **params) -> tuple[SPMPrediction, float]:
     return result, merge_time
 
 
-def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.5,
+@memory_limit(40)
+def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.3,
                match_metric: str = "IOU", merger: str = "NMM") -> tuple[SPMPrediction, float]:
     from sahi.postprocess.combine import GreedyNMMPostprocess, NMMPostprocess, NMSPostprocess, LSNMSPostprocess
     from sahi.postprocess.backends import set_postprocess_backend
     from utils.adapters import PredictionAdapter, SAHIPrediction
 
+    logger.info(f"Running SAHI with parameters: match_threshold={match_threshold}, match_metric={match_metric}, merger={merger}")
     set_postprocess_backend("numpy") # Set postprocess backend to numpy to avoid GPU memory usage during merging
 
     postprocessors = {"NMM": NMMPostprocess, "GREEDYNMM": GreedyNMMPostprocess, "NMS": NMSPostprocess, "LSNMS": LSNMSPostprocess}
@@ -211,6 +231,7 @@ def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.5,
     return result, merge_time
 
 
+@memory_limit(40)
 def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
                       merge: bool = True) -> tuple[SPMPrediction, float]:
     import supervision as sv

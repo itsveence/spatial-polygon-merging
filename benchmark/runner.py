@@ -55,7 +55,7 @@ def benchmark_test_set(
 
         for method in methods:
             try:
-                pred_output_dir = crop_dir / method.name
+                pred_output_dir = Path("benchmark_output") / crop_dir.name / method.name
                 merged, merge_time, peak_memory_usage = method.merge(unmerged)
                 merged.save_to_file(output_dir=pred_output_dir)
                 metrics = evaluate_prediction(merged, label_path, iou_threshold)
