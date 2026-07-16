@@ -12,7 +12,7 @@ from shapely.geometry import base as shapely_base
 
 from spm import SPMPrediction
 
-# COCO IoU sweep: 0.50, 0.55, ..., 0.95. Index 0 -> mAP50, index 5 -> mAP75.
+# IoU sweep: 0.50, 0.55, ..., 0.95. Index 0 -> mAP50, index 5 -> mAP75.
 _IOU_THRESHOLDS = np.round(np.arange(0.5, 1.0, 0.05), 2)
 _REC_THRESHOLDS = np.linspace(0.0, 1.0, 101)
 
