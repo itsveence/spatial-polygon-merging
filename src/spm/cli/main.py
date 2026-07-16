@@ -1,7 +1,7 @@
 import argparse
 
 def cli_train(args):
-    from training.yolo_seg_training import train
+    from spm.training.train_yolo import train
     train(
         data=args.data, 
         epochs=args.epochs, 
