@@ -1,6 +1,6 @@
 from benchmark.crops import generate_test_set
 from benchmark.methods import MERGING_METHODS, MergingMethod
-from benchmark.coco import evaluate_prediction, MergeMetrics
+from benchmark.eval import evaluate_prediction, MergeMetrics
 from benchmark.runner import benchmark_test_set, summarize
 
 __all__ = [

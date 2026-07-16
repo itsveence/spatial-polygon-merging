@@ -4,18 +4,12 @@ import csv
 from dataclasses import asdict
 from pathlib import Path
 
-from benchmark.coco import MergeMetrics, evaluate_prediction
+from benchmark.eval import MergeMetrics, evaluate_prediction
 from benchmark.methods import MERGING_METHODS, MergingMethod
 from spm.config.config import ModelConfig
 from spm.core.prediction import SPMPrediction
 from spm.models.yolo import YOLOModel
 from spm.utils.logger import logger
-
-
-def _unmerged_prediction(model: YOLOModel, image_path: Path) -> SPMPrediction:
-    """Run tiled inference once per crop; merging is applied separately per method."""
-    unmerged = model.predict(image_path)
-    return unmerged
 
 
 def benchmark_test_set(
@@ -51,7 +45,7 @@ def benchmark_test_set(
             continue
 
         crop_size = int(crop_dir.name.split("_")[1])
-        unmerged = _unmerged_prediction(model, image_path)
+        unmerged = model(image_path, merge=False)
 
         for method in methods:
             try:
