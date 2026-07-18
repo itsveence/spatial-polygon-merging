@@ -23,4 +23,4 @@ class ModelConfig:
 class SPMConfig:
     """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
     tau_dist: float = 1.0  # Distance around geometry within which to query the STRtree for neighbors
-    tau_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges
+    rho_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges

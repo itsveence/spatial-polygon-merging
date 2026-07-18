@@ -97,7 +97,7 @@ class SpatialPolygonMerger:
         # Transitive: each new merge increments depth from its parent
         while queue:
             node_idx, depth = queue.popleft()
-            if depth < self.config.tau_chain:
+            if depth < self.config.rho_chain:
                 for cand_idx in self._query(node_idx):
                     if cand_idx in neighbors_to_merge:
                         continue

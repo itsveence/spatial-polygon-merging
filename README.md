@@ -83,7 +83,7 @@ model = YOLOModel(ModelConfig(model_path="best.pt", tile_size=1500, overlap=0.1)
 unmerged = model.predict("scene.tif", merge=False)
 
 # merge in polygon space
-merger = SpatialPolygonMerger(SPMConfig(tau_dist=1.0, tau_chain=5))
+merger = SpatialPolygonMerger(SPMConfig(tau_dist=1.0, rho_chain=5))
 merger.index(unmerged)
 merged = merger.merge(unmerged.seam_prediction_idxs)   # or merger.merge() to seed globally
 
@@ -91,7 +91,7 @@ merged.save_to_file(format="gpkg", output_dir="output/")
 ```
 
 `SPMConfig` exposes the two merge parameters: `tau_dist`, the proximity threshold in pixels
-within which two footprints are associated, and `tau_chain`, the maximum depth of transitive
+within which two footprints are associated, and `rho_chain`, the maximum depth of transitive
 chaining from a seed.
 
 ## Benchmarking
