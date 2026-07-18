@@ -259,16 +259,28 @@ def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
         _add_mask_annotation(result, detections.mask[i].astype(np.uint8), name, class_id, detections.confidence[i])
     return result, merge_time
 
+# smm_params = {
+#         "tau_d":5.0,      # Distance threshold (pixels)
+#         "tau_i":0.5,       # IoU threshold
+#         "rho":10.0,        # R-tree search radius (pixels)
+#         "beta1":0.3,       # Distance weight
+#         "beta2":0.5,       # IoU weight
+#         "beta3":0.2,       # Confidence weight
+#         "gamma":0.5,       # Anti-chaining threshold
+#         "lambda_":0.5      # Clustering penalty
+#     }
+
+# Optimized SMM parameters from hyperparameter tuning
 smm_params = {
-        "tau_d":5.0,      # Distance threshold (pixels)
-        "tau_i":0.5,       # IoU threshold
-        "rho":10.0,        # R-tree search radius (pixels)
-        "beta1":0.3,       # Distance weight
-        "beta2":0.5,       # IoU weight
-        "beta3":0.2,       # Confidence weight
-        "gamma":0.5,       # Anti-chaining threshold
-        "lambda_":0.5      # Clustering penalty
-    }
+  "tau_d": 21.855988093291327,
+  "tau_i": 0.40396342434325805,
+  "rho": 44.6431390422366,
+  "beta1": 0.3406807500462869,
+  "beta2": 0.5791467587819955,
+  "beta3": 0.26279874111556634,
+  "gamma": 0.43312966514646717,
+  "lambda_": 1.0870328415148245
+}
 
 MERGING_METHODS: dict[str, MergingMethod] = {
     "spm_seam_only": MergingMethod("spm_seam_only", merge_spm, merge_only_seam=True),

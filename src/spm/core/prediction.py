@@ -138,6 +138,36 @@ class SPMPrediction:
             },
             "features": features,
         }
+    
+    def to_json(self) -> dict:
+        """Convert the SPMPrediction to a dictionary."""
+        if self.image_path is None:
+            raise ValueError("image_path is not set for SPMPrediction.")
+        with rasterio.open(self.image_path) as src:
+            height, width = src.height, src.width
+
+        annotations: list[dict] = []
+        for i in range(len(self.polygons)):
+            coords = [[int(round(px)), int(round(py))] for px, py in self.polygons[i].exterior.coords]
+            if len(coords) < 3:
+                continue
+            minx, miny, maxx, maxy = self.polygons[i].bounds
+            bbox = [int(round(minx)), int(round(miny)),
+                    int(round(maxx)), int(round(maxy))]
+            annotations.append({
+                "type": "object",
+                "class_id": self.class_ids[i],
+                "bbox": bbox,
+                "area": float(self.polygons[i].area),
+                "segmentation": [coords],
+                "confidence": self.confidences[i],
+            })
+
+        return {
+            "image_name": Path(self.image_path).name,
+            "image_size": (height, width),
+            "annotations": annotations
+        }
 
     def save_to_file(self, format: str = "gpkg", name: str = None, output_dir: Path = None) -> None:
         """Save the SPMPrediction as a GeoJSON file."""

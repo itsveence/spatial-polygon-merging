@@ -60,6 +60,38 @@ def _ground_truth_polygons(label_path: Path, image_path: Path) -> list:
             polygons.append(transform(to_pixels, part))
     return polygons
 
+def _ground_truth_dict(label_path: Path, image_path: Path) -> dict:
+    """Load GPKG labels and project them into the crop's pixel coordinates.
+
+    Returns an entry dict:
+    ``image_name``, ``image_size`` (H, W) and an ``annotations`` list whose
+    ``segmentation`` fields are nested ``[[x, y], ...]`` pixel rings.
+    """
+    with rasterio.open(image_path) as src:
+        height, width = src.height, src.width
+
+    annotations: list[dict] = []
+    for polygon in _ground_truth_polygons(Path(label_path), Path(image_path)):
+        coords = [[int(round(px)), int(round(py))] for px, py in polygon.exterior.coords]
+        if len(coords) < 3:
+            continue
+        minx, miny, maxx, maxy = polygon.bounds
+        bbox = [int(round(minx)), int(round(miny)),
+                int(round(maxx)), int(round(maxy))]
+        annotations.append({
+            "type": "object",
+            "class_id": 0,
+            "bbox": bbox,
+            "area": float(polygon.area),
+            "segmentation": [coords],
+            "confidence": 1.0,
+        })
+
+    return {
+        "image_name": Path(image_path).name,
+        "image_size": (height, width),
+        "annotations": annotations,
+    }
 
 def _candidate_ious(dt_polygons, gt_polygons) -> list[list[tuple[float, int]]]:
     """For each detection, the (iou, gt_index) pairs of GTs whose envelopes overlap.
