@@ -11,3 +11,9 @@ wheels/
 data
 *.env
 runs/
+test_*
+docs/
+weights/
+*benchmark_output/
+benchmark_test_set/
+*.old*
