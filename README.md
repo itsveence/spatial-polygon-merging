@@ -30,6 +30,7 @@ src/spm/            # the installable `spm` package
   preprocessing/    # dataset preparation and mask-to-polygon conversion
   training/         # YOLO fine-tuning
   visualization/    # prediction overlays
+  utils/            # logging and memory/time profiling helpers
 benchmark/          # experimental harness comparing SPM against baselines
 utils/adapters.py   # cross-representation adapters (SPM / SMM / SAHI)
 notebooks/          # exploration and benchmark notebooks + results
@@ -44,32 +45,41 @@ the CUDA 12.4 index; on macOS, from the CPU index (see `pyproject.toml`).
 uv sync
 ```
 
-This installs the `spm` package and all dependencies into a local virtual environment.
+This installs the `spm` package (exposing the `spm` command-line entry point) and all
+dependencies into a local virtual environment.
 
 ## Usage
 
 ### Command line
 
-Run tiled inference on a GeoTIFF and merge the fragmented predictions with SPM:
+The package installs a Click-based `spm` command with two subcommands, `predict` and `train`.
+Run it through uv (`uv run spm ...`) or from an activated environment (`spm ...`).
+
+Run tiled inference on a GeoTIFF and merge the fragmented predictions with SPM. Both the model
+weights and the image are positional arguments:
 
 ```bash
-uv run python -m spm.cli.main predict \
-  --model-path runs/segment/yolo-seg-whu/weights/best.pt \
-  --image-path path/to/scene.tif \
+uv run spm predict \
+  runs/segment/yolo-seg-whu/weights/best.pt \
+  path/to/scene.tif \
   --tile-size 1500 \
   --overlap 0.1 \
-  --merge --merge-only-seam
+  --conf 0.3 --iou 0.5 \
+  --merge --merge-only-seam \
+  --save-format gpkg
 ```
 
 `--merge` applies SPM; adding `--merge-only-seam` restricts the merge seeds to detections that
 reach into a tile-overlap zone (faster, and the locality-preserving default). Omitting both
 returns the raw, unmerged detections.
 
-Fine-tune the YOLO segmentation backbone on a prepared dataset:
+Fine-tune a YOLO segmentation backbone on a prepared dataset. The dataset YAML and the base
+model to fine-tune are positional arguments:
 
 ```bash
-uv run python -m spm.cli.main train \
-  --data data/whu_yolo_dataset/whu.yaml \
+uv run spm train \
+  data/whu_yolo_dataset/whu.yaml \
+  yolo11n-seg.pt \
   --epochs 100 --imgsz 640 --batch 4
 ```
 
