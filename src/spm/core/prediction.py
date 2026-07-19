@@ -8,17 +8,17 @@ import geopandas as gpd
 
 from spm.core.geometry import xy_mask_to_polygon
 from spm.io.raster import get_crs_and_transform, pixel_to_geo
+from spm.utils.logger import logger
 
 
 @dataclass
 class SPMPrediction:
     """Container for predictions from the model, including masks, polygons, bounding boxes, class IDs, and confidence scores."""
+
     names: list[str] = field(default_factory=list)
-    segmentations: list[list[list[tuple[float, float]]
-                        ]] = field(default_factory=list)
+    segmentations: list[list[list[tuple[float, float]]]] = field(default_factory=list)
     polygons: list[Polygon] = field(default_factory=list)
-    bboxes: list[tuple[float, float, float, float]
-                 ] = field(default_factory=list)
+    bboxes: list[tuple[float, float, float, float]] = field(default_factory=list)
     class_ids: list[int] = field(default_factory=list)
     confidences: list[float] = field(default_factory=list)
 
@@ -27,7 +27,15 @@ class SPMPrediction:
 
     seam_prediction_idxs: list[int] = field(default_factory=list)
 
-    def add_annotation(self, name: str = None, class_id: int = None, confidence: float = None, bbox: tuple[float] = None, segmentation: list[list[tuple[float]]] = None, polygon: Polygon = None):
+    def add_annotation(
+        self,
+        name: str = None,
+        class_id: int = None,
+        confidence: float = None,
+        bbox: tuple[float] = None,
+        segmentation: list[list[tuple[float]]] = None,
+        polygon: Polygon = None,
+    ):
         if polygon is None:
             # Assuming segmentation is a list of lists of (x, y) tuples
             polygon = self._to_polygon(segmentation)
@@ -42,7 +50,7 @@ class SPMPrediction:
 
     def _to_polygon(self, mask: list[list[tuple[float]]]) -> Polygon:
         return xy_mask_to_polygon(mask)
-    
+
     def _get_crs_and_transform(self):
         if self.image_path is None:
             raise ValueError("image_path is not set for SPMPrediction.")
@@ -52,17 +60,14 @@ class SPMPrediction:
     def _to_gdf(self) -> gpd.GeoDataFrame:
         """Convert the SPMPrediction to a GeoPandas GeoDataFrame."""
         from shapely.ops import transform
-        
+
         crs, affine_transform = get_crs_and_transform(self.image_path)
 
         def pixel_to_geo(x, y, z=None):
             x_geo, y_geo = affine_transform * (x, y)
             return x_geo, y_geo
 
-        geometries = [
-            transform(pixel_to_geo, geom)
-            for geom in self.polygons
-        ]
+        geometries = [transform(pixel_to_geo, geom) for geom in self.polygons]
 
         properties = {
             "name": self.names,
@@ -71,11 +76,7 @@ class SPMPrediction:
             "bbox": self.bboxes,
         }
 
-        gdf = gpd.GeoDataFrame(
-            properties,
-            geometry=geometries,
-            crs=crs
-        )
+        gdf = gpd.GeoDataFrame(properties, geometry=geometries, crs=crs)
 
         return gdf
 
@@ -132,13 +133,11 @@ class SPMPrediction:
             "type": "FeatureCollection",
             "crs": {
                 "type": "name",
-                "properties": {
-                    "name": _crs
-                },
+                "properties": {"name": _crs},
             },
             "features": features,
         }
-    
+
     def to_json(self) -> dict:
         """Convert the SPMPrediction to a dictionary."""
         if self.image_path is None:
@@ -148,54 +147,76 @@ class SPMPrediction:
 
         annotations: list[dict] = []
         for i in range(len(self.polygons)):
-            coords = [[int(round(px)), int(round(py))] for px, py in self.polygons[i].exterior.coords]
+            coords = [
+                [int(round(px)), int(round(py))]
+                for px, py in self.polygons[i].exterior.coords
+            ]
             if len(coords) < 3:
                 continue
             minx, miny, maxx, maxy = self.polygons[i].bounds
-            bbox = [int(round(minx)), int(round(miny)),
-                    int(round(maxx)), int(round(maxy))]
-            annotations.append({
-                "type": "object",
-                "class_id": self.class_ids[i],
-                "bbox": bbox,
-                "area": float(self.polygons[i].area),
-                "segmentation": [coords],
-                "confidence": self.confidences[i],
-            })
+            bbox = [
+                int(round(minx)),
+                int(round(miny)),
+                int(round(maxx)),
+                int(round(maxy)),
+            ]
+            annotations.append(
+                {
+                    "type": "object",
+                    "class_id": self.class_ids[i],
+                    "bbox": bbox,
+                    "area": float(self.polygons[i].area),
+                    "segmentation": [coords],
+                    "confidence": self.confidences[i],
+                }
+            )
 
         return {
             "image_name": Path(self.image_path).name,
             "image_size": (height, width),
-            "annotations": annotations
+            "annotations": annotations,
         }
 
-    def save_to_file(self, format: str = "gpkg", name: str = None, output_dir: Path = None) -> None:
-        """Save the SPMPrediction as a GeoJSON file."""
+    def save_to_file(
+        self, format: str = "gpkg", name: str = None, output_dir: Path = None
+    ) -> None:
+        """Save the SPMPrediction as a GeoJSON or GPKG file."""
         format = format.lower()
 
         if format not in ["geojson", "gpkg"]:
             raise ValueError(f"Unsupported format: {format}")
-        
-        dir = Path(f"predictions/{format}") if not output_dir else Path(output_dir) / format
+
+        dir = (
+            Path(f"predictions/{format}")
+            if not output_dir
+            else Path(output_dir) / format
+        )
         dir.mkdir(parents=True, exist_ok=True)
 
         file_name = (
-            Path(f"{name}.{format}") if name else 
-            Path(f"{self.image_path.stem}.{format}") if self.image_path else 
-            Path(f"prediction.{format}")
+            Path(f"{name}.{format}")
+            if name
+            else (
+                Path(f"{self.image_path.stem}.{format}")
+                if self.image_path
+                else Path(f"prediction.{format}")
             )
-        
+        )
+
         output_path = dir / file_name
-        
+
         if format == "geojson":
             geojson_dict = self._to_geojson()
             import json
+
             with open(output_path, "w") as f:
                 json.dump(geojson_dict, f, indent=2)
 
         elif format == "gpkg":
             gdf = self._to_gdf()
             gdf.to_file(output_path, driver="GPKG")
+
+        logger.info(f"Saved prediction to {output_path}")
 
     @property
     def count(self):
@@ -219,4 +240,3 @@ class SPMPrediction:
             image_shape=self.image_shape,
         )
         return seam_pred
-
