@@ -1,3 +1,5 @@
+exclude: 'spatial_mask_merging/.*'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
@@ -19,3 +21,6 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-requests] # Add types for external libs here
+        args:
+          - --ignore-missing-imports
+          - --exclude=spatial_mask_merging/

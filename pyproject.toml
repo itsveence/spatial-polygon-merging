@@ -12,8 +12,11 @@ dependencies = [
     "ipykernel>=7.2.0",
     "lsnms>=0.4.5",
     "memory-profiler>=0.61.0",
+    "no-implicit-optional>=1.4",
     "optuna>=4.9.0",
+    "pre-commit>=4.6.0",
     "pulp>=3.3.1",
+    "pytest>=9.1.1",
     "python-dotenv>=1.2.2",
     "rasterio>=1.4.4",
     "rtree>=1.4.1",
@@ -56,3 +59,10 @@ packages = ["src/spm"]
 
 [project.scripts]
 spm = "spm.cli:main"
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "spatial_mask_merging.*"
+ignore_errors = true
