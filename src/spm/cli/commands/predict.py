@@ -57,7 +57,7 @@ def predict(
     merge_only_seam,
     save_format,
 ):
-    click.echo(f"Running prediction with the following parameters:")
+    click.echo("Running prediction with the following parameters:")
     click.echo(f"Model Path: {model}")
     click.echo(f"Image Path: {image}")
     click.echo(f"Device: {device}")

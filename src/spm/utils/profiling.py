@@ -14,13 +14,16 @@ def time_it(func):
         result = func(*args, **kwargs)
         end_time = time.perf_counter()
         elapsed = end_time - start_time
-        time_elapsed = (datetime.min + timedelta(seconds=elapsed)).strftime("%H:%M:%S.%f")
+        time_elapsed = (datetime.min + timedelta(seconds=elapsed)).strftime(
+            "%H:%M:%S.%f"
+        )
         logger.info(
             f"\033[32mExecution time for {func.__name__}(): {time_elapsed}\033[0m"
         )
         return result
 
     return wrapper
+
 
 def size_it(func):
     """Decorator to measure the size of the output of a function."""

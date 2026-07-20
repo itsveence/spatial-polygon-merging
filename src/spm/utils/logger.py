@@ -4,7 +4,6 @@ import time
 from spm.config import LOGGING_LEVEL
 
 
-
 class AnsiColorCodes:
     INFO = "\033[36m"
     WARNING = "\033[33m"
@@ -17,6 +16,7 @@ class AnsiColorCodes:
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter to add specific formatting to log messages."""
+
     def __init__(self, fmt=None, datefmt=None):
         super().__init__(fmt, datefmt)
         self.color_codes = AnsiColorCodes()
@@ -24,13 +24,13 @@ class ColoredFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):
         # Convert record.created (float epoch) into a datetime object
         dt = datetime.fromtimestamp(record.created)
-        
+
         if datefmt:
             # Use standard strftime formatting (supports %f for microseconds)
             return dt.strftime(datefmt)
         else:
             # Default fallback format with full precision
-            return dt.strftime('%Y-%m-%d %H:%M:%S.%f')
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     def format(self, record):
         msg = record.msg
@@ -49,10 +49,23 @@ class ColoredFormatter(logging.Formatter):
         time_section = self.color_codes.TIME + f"[{timestamp}]" + self.color_codes.RESET
         level_section = color + f"{levelname}" + self.color_codes.RESET
         message_section = self.color_codes.MESSAGE + f"{msg}" + self.color_codes.RESET
-        code_section = self.color_codes.CODE + f"({record.pathname}:{record.lineno}:{record.funcName}())" + self.color_codes.RESET
+        code_section = (
+            self.color_codes.CODE
+            + f"({record.pathname}:{record.lineno}:{record.funcName}())"
+            + self.color_codes.RESET
+        )
 
-        return time_section + " " + level_section + " - " + message_section + " " + code_section
-    
+        return (
+            time_section
+            + " "
+            + level_section
+            + " - "
+            + message_section
+            + " "
+            + code_section
+        )
+
+
 def setup_logging():
     """Sets up the logging configuration."""
     logger = logging.getLogger()
@@ -73,6 +86,7 @@ def setup_logging():
     console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
+
 
 # Setup  logging
 setup_logging()

@@ -15,6 +15,7 @@ from spm.utils.logger import logger
 @dataclass(frozen=True)
 class Crop:
     """A single generated test crop and its ground-truth labels."""
+
     crop_size: int
     index: int
     image_path: Path
@@ -63,14 +64,17 @@ def generate_test_set(
         invalid = ~labels.geometry.is_valid
         if invalid.any():
             logger.warning(f"Repairing {int(invalid.sum())} invalid label geometries")
-            labels.loc[invalid, labels.geometry.name] = labels.geometry[invalid].make_valid()
+            labels.loc[invalid, labels.geometry.name] = labels.geometry[
+                invalid
+            ].make_valid()
             labels = labels[~labels.geometry.is_empty]
         sindex = labels.sindex
 
         for crop_size in crop_sizes:
             if crop_size > min(src.width, src.height):
                 logger.warning(
-                    f"Crop size {crop_size} exceeds image {src.width}x{src.height}; skipping.")
+                    f"Crop size {crop_size} exceeds image {src.width}x{src.height}; skipping."
+                )
                 continue
 
             stride = max(1, round(crop_size * stride_ratio))
@@ -80,8 +84,12 @@ def generate_test_set(
                 win_transform = window_transform(window, src.transform)
                 left, top = win_transform * (0, 0)
                 right, bottom = win_transform * (crop_size, crop_size)
-                bounds = box(min(left, right), min(top, bottom),
-                             max(left, right), max(top, bottom))
+                bounds = box(
+                    min(left, right),
+                    min(top, bottom),
+                    max(left, right),
+                    max(top, bottom),
+                )
 
                 hits = labels.iloc[list(sindex.intersection(bounds.bounds))]
                 clipped = gpd.clip(hits, bounds)
@@ -97,8 +105,7 @@ def generate_test_set(
             for index, (window, clipped) in enumerate(candidates):
                 crop = _write_crop(src, window, clipped, output_dir, crop_size, index)
                 crops.append(crop)
-                logger.info(
-                    f"Wrote crop {crop.image_path} with {len(clipped)} labels")
+                logger.info(f"Wrote crop {crop.image_path} with {len(clipped)} labels")
 
     logger.info(f"Generated {len(crops)} crops in {output_dir}")
     return crops

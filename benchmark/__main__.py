@@ -6,7 +6,6 @@ from pathlib import Path
 from benchmark import benchmark_test_set, generate_test_set
 from benchmark.runner import _write_csv, summarize
 from spm.config.config import ModelConfig
-from spm.config.settings import MODEL
 
 
 def _cmd_generate(args: argparse.Namespace) -> None:
@@ -27,8 +26,8 @@ def _cmd_evaluate(args: argparse.Namespace) -> None:
         batch_size=args.batch_size,
         confidence_threshold=args.conf,
         tile_size=args.tile_size,
-        overlap=args.overlap
-        )
+        overlap=args.overlap,
+    )
     rows = benchmark_test_set(
         test_set_dir=args.test_set,
         model_config=config,
@@ -37,11 +36,16 @@ def _cmd_evaluate(args: argparse.Namespace) -> None:
     )
     summary = summarize(rows)
     if summary and args.output:
-        _write_csv(summary, Path(args.output).with_name(Path(args.output).stem + "_summary.csv"))
+        _write_csv(
+            summary,
+            Path(args.output).with_name(Path(args.output).stem + "_summary.csv"),
+        )
     for entry in summary:
-        print(f"{entry['crop_size']:>6} {entry['method']:<18} "
-              f"mAP={entry['mAP']:.3f} mAP50={entry['mAP50']:.3f} "
-              f"P={entry['precision']:.3f} R={entry['recall']:.3f} F1={entry['f1']:.3f}")
+        print(
+            f"{entry['crop_size']:>6} {entry['method']:<18} "
+            f"mAP={entry['mAP']:.3f} mAP50={entry['mAP50']:.3f} "
+            f"P={entry['precision']:.3f} R={entry['recall']:.3f} F1={entry['f1']:.3f}"
+        )
 
 
 def main() -> None:

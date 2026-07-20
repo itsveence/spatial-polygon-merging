@@ -17,7 +17,7 @@ def train(
     batch,
     resume,
 ):
-    click.echo(f"Training YOLO model with the following parameters:")
+    click.echo("Training YOLO model with the following parameters:")
     click.echo(f"Data: {data}")
     click.echo(f"Model Path: {model}")
     click.echo(f"Epochs: {epochs}")
@@ -28,9 +28,9 @@ def train(
     # Call the train function from the training module
     train_yolo(
         data=data,
+        model_path=model,
         epochs=epochs,
         imgsz=imgsz,
         batch=batch,
         resume=resume,
-        model_path=model,
     )

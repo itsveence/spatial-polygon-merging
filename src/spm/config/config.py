@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 
+
 @dataclass
 class ModelConfig:
     """Configuration for the model."""
+
     model_path: str = field(default_factory=str)
     device: str = "cuda"  # or "cpu"
     batch_size: int = 4
@@ -16,11 +18,15 @@ class ModelConfig:
     @property
     def overlap_pixels(self) -> int:
         return round(self.overlap * self.tile_size)
-    
-    contour_approx_factor: float = 0.01 # Factor for approximating contours
+
+    contour_approx_factor: float = 0.01  # Factor for approximating contours
+
 
 @dataclass
 class SPMConfig:
     """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
-    tau_dist: float = 1.0  # Distance around geometry within which to query the STRtree for neighbors
+
+    tau_dist: float = (
+        1.0  # Distance around geometry within which to query the STRtree for neighbors
+    )
     rho_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges

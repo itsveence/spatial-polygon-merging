@@ -7,7 +7,6 @@ from pathlib import Path
 from benchmark.eval import MergeMetrics, evaluate_prediction
 from benchmark.methods import MERGING_METHODS, MergingMethod
 from spm.config.config import ModelConfig
-from spm.core.prediction import SPMPrediction
 from spm.models.yolo import YOLOModel
 from spm.utils.logger import logger
 
@@ -57,20 +56,22 @@ def benchmark_test_set(
                 logger.error(f"{method.name} failed on {crop_dir.name}: {exc}")
                 continue
 
-            rows.append({
-                "crop": crop_dir.name,
-                "crop_size": crop_size,
-                "method": method.name,
-                "merge_time": merge_time,
-                "peak_memory_usage": peak_memory_usage,
-                **asdict(metrics),
-            })
+            rows.append(
+                {
+                    "crop": crop_dir.name,
+                    "crop_size": crop_size,
+                    "method": method.name,
+                    "merge_time": merge_time,
+                    "peak_memory_usage": peak_memory_usage,
+                    **asdict(metrics),
+                }
+            )
             logger.info(
                 f"{crop_dir.name} / {method.name}: "
                 f"mAP={metrics.mAP:.3f} P={metrics.precision:.3f} "
                 f"R={metrics.recall:.3f} F1={metrics.f1:.3f} "
                 f"merge_time={merge_time:.3f}s peak_memory_usage={peak_memory_usage:.3f}MiB"
-                )
+            )
 
     if output_csv and rows:
         _write_csv(rows, Path(output_csv))
@@ -79,7 +80,9 @@ def benchmark_test_set(
 
 def summarize(rows: list[dict]) -> list[dict]:
     """Average each metric per (crop_size, method) across crops."""
-    metric_keys = [k for k in MergeMetrics.__annotations__ if k not in ("num_gt", "num_pred")]
+    metric_keys = [
+        k for k in MergeMetrics.__annotations__ if k not in ("num_gt", "num_pred")
+    ]
     groups: dict[tuple[int, str], list[dict]] = {}
     for row in rows:
         groups.setdefault((row["crop_size"], row["method"]), []).append(row)

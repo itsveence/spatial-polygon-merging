@@ -1,12 +1,22 @@
 import os
-os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+from spm.config import PROJECT_NAME, MODEL
 import warnings
+
 warnings.filterwarnings("ignore")
 
-from ultralytics import YOLO
-from spm.config import PROJECT_NAME, MODEL
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 
-def train(data: str, epochs: int = 100, imgsz: int = 640, batch: int = 4, resume: bool = False, model_path: str = None) -> None:
+
+def train(
+    data: str,
+    model_path: str,
+    epochs: int = 100,
+    imgsz: int = 640,
+    batch: int = 4,
+    resume: bool = False,
+) -> None:
+    from ultralytics import YOLO
+
     # Load a model
     if model_path:
         model = YOLO(model_path)  # load a custom model from a local path
@@ -15,12 +25,11 @@ def train(data: str, epochs: int = 100, imgsz: int = 640, batch: int = 4, resume
 
     # Train the model
     model.train(
-        data=data, 
+        data=data,
         epochs=epochs,
-        imgsz=imgsz, 
+        imgsz=imgsz,
         batch=batch,
-        name=PROJECT_NAME, 
+        name=PROJECT_NAME,
         exist_ok=True,
         resume=resume,
-        )
-    
+    )

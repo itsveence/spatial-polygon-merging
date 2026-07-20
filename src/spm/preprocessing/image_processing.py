@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 import tifffile as tiff
 import rasterio
-from typing import Generator, Union
+from typing import Any, Generator, Union
 
 from spm.utils.logger import logger
 from spm.utils.profiling import time_it
@@ -26,7 +26,14 @@ def tiff_to_png(tiff_path: Path, png_path: Path) -> None:
         logger.error(f"Failed to convert {tiff_path} to PNG: {e}")
 
 
-def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, approx_contour: bool = False, contour_approx_factor: float = 0.01, normalize: bool = True, sort_by_area: bool = False) -> list[list[Union[float, int]]]:
+def binary_mask_to_contours(
+    mask: np.ndarray,
+    min_area: int = 20,
+    approx_contour: bool = False,
+    contour_approx_factor: float = 0.01,
+    normalize: bool = True,
+    sort_by_area: bool = False,
+) -> list[list[Union[float, int]]]:
     """Converts binary masks to contours, with options for filtering by area, normalizing coordinates, and sorting by area.
 
     Args:
@@ -38,13 +45,12 @@ def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, approx_contour
         sort_by_area (bool, optional): Whether to sort contours by area. Defaults to False.
 
     Returns:
-        list[list[Union[float, int]]]: List of contours, where each contour is a list of (x, y) coordinates. 
-        Coordinates are normalized to [0, 1] if `normalize` is True, otherwise they are in pixel values. 
+        list[list[Union[float, int]]]: List of contours, where each contour is a list of (x, y) coordinates.
+        Coordinates are normalized to [0, 1] if `normalize` is True, otherwise they are in pixel values.
         Contours with area less than `min_area` are excluded. If `sort_by_area` is True, contours are sorted in descending order of area.
     """
 
-    contours, _ = cv2.findContours(
-        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     logger.debug(f"Found {len(contours)} contours in mask")
 
     h, w = mask.shape
@@ -68,39 +74,44 @@ def binary_mask_to_contours(mask: np.ndarray, min_area: int = 20, approx_contour
         points = contour.reshape(-1, 2)
 
         if normalize:
-            normalized = (points/[w, h]).ravel().tolist()
+            normalized = (points / [w, h]).ravel().tolist()
             logger.debug(
-                f"Contour with area {area} has {len(points)} points, normalized: {normalized}")
+                f"Contour with area {area} has {len(points)} points, normalized: {normalized}"
+            )
             final_contours.append(normalized)
         else:
             contour = points.ravel().tolist()
             logger.debug(
-                f"Contour with area {area} has {len(points)} points, raw: {contour}")
+                f"Contour with area {area} has {len(points)} points, raw: {contour}"
+            )
             final_contours.append(contour)
 
         list_of_areas.append(area)
-        
+
     if sort_by_area:
-        sorted_indexes = sorted(range(len(list_of_areas)),
-                                key=list_of_areas.__getitem__, reverse=True)
+        sorted_indexes = sorted(
+            range(len(list_of_areas)), key=list_of_areas.__getitem__, reverse=True
+        )
         return [final_contours[i] for i in sorted_indexes]
     else:
         return final_contours
 
 
-def mask_file_to_polygons(mask_path: Path, min_area: int = 20, normalize: bool = True) -> list[list[Union[float, int]]]:
+def mask_file_to_polygons(
+    mask_path: Path, min_area: int = 20, normalize: bool = True
+) -> list[list[Union[float, int]]]:
     """Converts binary mask to list of polygons."""
     mask = tiff.imread(mask_path)
     logger.debug(
-        f"Loaded mask from {mask_path} with shape {mask.shape} and dtype {mask.dtype}")
+        f"Loaded mask from {mask_path} with shape {mask.shape} and dtype {mask.dtype}"
+    )
     if mask.ndim == 3:
         mask = mask[:, :, 0]
 
     mask = ~mask  # Invert mask: 0/False becomes 255/True, and vice versa
 
     binary = mask.astype(np.uint8)
-    polygons = binary_mask_to_contours(
-        binary, min_area=min_area, normalize=normalize)
+    polygons = binary_mask_to_contours(binary, min_area=min_area, normalize=normalize)
 
     return polygons
 
@@ -109,8 +120,7 @@ def mask_file_to_polygons(mask_path: Path, min_area: int = 20, normalize: bool =
 def mask_to_txt(mask_path: Path, txt_path: Path, min_area: int = 20) -> None:
     """Converts mask images to YOLO text format."""
     try:
-        polygons = mask_file_to_polygons(
-            mask_path, min_area=min_area, normalize=True)
+        polygons = mask_file_to_polygons(mask_path, min_area=min_area, normalize=True)
         lines = []
         for poly in polygons:
             line = f"{0} " + " ".join(f"{p:.6f}" for p in poly)
@@ -141,7 +151,12 @@ def read_tile(src, top, left, bottom, right):
     return img_bgr
 
 
-def stream_tiles_by_batch(src: rasterio.DatasetReader, tile_size: int = 640, batch_size: int = 4, overlap: int = 0) -> Generator[tuple[list[np.ndarray], list[tuple[int, int]]], None, None]:
+def stream_tiles_by_batch(
+    src: rasterio.DatasetReader,
+    tile_size: int = 640,
+    batch_size: int = 4,
+    overlap: int = 0,
+) -> Generator[tuple[list[np.ndarray], list[tuple[int, int, Any, Any]]], None, None]:
     """Streams tiles from a raster source in batches, with options for tile size, batch size, and overlap.
 
     Args:
@@ -151,14 +166,15 @@ def stream_tiles_by_batch(src: rasterio.DatasetReader, tile_size: int = 640, bat
         overlap (int, optional): _description_. Defaults to 0.
 
     Yields:
-        Generator[tuple[list[np.ndarray], list[tuple[int, int]]], None, None]: A generator that yields tuples containing a list of image tiles (as numpy arrays) and a corresponding list of their coordinates (top, left, bottom, right).
+        Generator[tuple[list[np.ndarray], list[tuple[int, int, Any, Any]]], None, None]: A generator that yields tuples containing a list of image tiles (as numpy arrays) and a corresponding list of their coordinates (top, left, bottom, right).
     """
     width, height = src.width, src.height
 
     # If the tile size is larger than the image height or width, then return the whole image as one tile, with the 4 coordinates
     if tile_size >= min(height, width):
         logger.warning(
-            f"Tile size {tile_size} is larger than image dimensions {height}x{width}. Returning the whole image as one tile.")
+            f"Tile size {tile_size} is larger than image dimensions {height}x{width}. Returning the whole image as one tile."
+        )
         img = src.read().transpose(1, 2, 0)  # Read the whole image
         img_bgr = img[..., ::-1]  # flip to BGR for OpenCV/Ultralytics
         # Yield the whole image as one tile with its coordinates

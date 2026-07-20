@@ -20,6 +20,7 @@ _REC_THRESHOLDS = np.linspace(0.0, 1.0, 101)
 @dataclass
 class MergeMetrics:
     """Detection scores for one merged prediction against its ground truth."""
+
     num_gt: int
     num_pred: int
     mAP: float
@@ -60,6 +61,7 @@ def _ground_truth_polygons(label_path: Path, image_path: Path) -> list:
             polygons.append(transform(to_pixels, part))
     return polygons
 
+
 def _ground_truth_dict(label_path: Path, image_path: Path) -> dict:
     """Load GPKG labels and project them into the crop's pixel coordinates.
 
@@ -72,26 +74,30 @@ def _ground_truth_dict(label_path: Path, image_path: Path) -> dict:
 
     annotations: list[dict] = []
     for polygon in _ground_truth_polygons(Path(label_path), Path(image_path)):
-        coords = [[int(round(px)), int(round(py))] for px, py in polygon.exterior.coords]
+        coords = [
+            [int(round(px)), int(round(py))] for px, py in polygon.exterior.coords
+        ]
         if len(coords) < 3:
             continue
         minx, miny, maxx, maxy = polygon.bounds
-        bbox = [int(round(minx)), int(round(miny)),
-                int(round(maxx)), int(round(maxy))]
-        annotations.append({
-            "type": "object",
-            "class_id": 0,
-            "bbox": bbox,
-            "area": float(polygon.area),
-            "segmentation": [coords],
-            "confidence": 1.0,
-        })
+        bbox = [int(round(minx)), int(round(miny)), int(round(maxx)), int(round(maxy))]
+        annotations.append(
+            {
+                "type": "object",
+                "class_id": 0,
+                "bbox": bbox,
+                "area": float(polygon.area),
+                "segmentation": [coords],
+                "confidence": 1.0,
+            }
+        )
 
     return {
         "image_name": Path(image_path).name,
         "image_size": (height, width),
         "annotations": annotations,
     }
+
 
 def _candidate_ious(dt_polygons, gt_polygons) -> list[list[tuple[float, int]]]:
     """For each detection, the (iou, gt_index) pairs of GTs whose envelopes overlap.
@@ -189,6 +195,7 @@ def _average_precision(candidates, num_gt) -> tuple[float, float, float]:
 
     return float(aps.mean()), float(aps[0]), float(aps[5])
 
+
 def evaluate_prediction(
     prediction: SPMPrediction,
     label_path: str | Path,
@@ -202,6 +209,8 @@ def evaluate_prediction(
     ground-truth polygons so exact IoU is only evaluated for spatially-overlapping
     objects.
     """
+    if prediction.image_path is None:
+        raise ValueError("prediction.image_path is not set.")
     gt_polygons = _ground_truth_polygons(Path(label_path), Path(prediction.image_path))
 
     order = np.argsort(prediction.confidences)[::-1] if prediction.count else []
@@ -216,7 +225,12 @@ def evaluate_prediction(
     mAP, mAP50, mAP75 = _average_precision(candidates, len(gt_polygons))
 
     return MergeMetrics(
-        num_gt=len(gt_polygons), num_pred=len(dt_polygons),
-        mAP=mAP, mAP50=mAP50, mAP75=mAP75,
-        precision=precision, recall=recall, f1=f1,
+        num_gt=len(gt_polygons),
+        num_pred=len(dt_polygons),
+        mAP=mAP,
+        mAP50=mAP50,
+        mAP75=mAP75,
+        precision=precision,
+        recall=recall,
+        f1=f1,
     )

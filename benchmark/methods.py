@@ -6,7 +6,8 @@ import queue as mp_queues
 import threading
 import time
 from typing import Callable
-import resource, functools
+import resource
+import functools
 
 import cv2
 import numpy as np
@@ -18,11 +19,12 @@ from spm.merging.spm import SpatialPolygonMerger
 from spm.preprocessing.image_processing import binary_mask_to_contours
 from spm.utils.logger import logger
 
-MergeFn = Callable[..., SPMPrediction]
+MergeFn = Callable[..., tuple[SPMPrediction, float]]
 
 # RSS poll interval for the in-child memory monitor. Small enough to catch
 # short native allocation spikes that a coarse sampler would miss.
 _RSS_POLL_INTERVAL = 0.001
+
 
 def memory_limit(max_gb):
     def decorator(func):
@@ -35,8 +37,11 @@ def memory_limit(max_gb):
                 return func(*args, **kwargs)
             finally:
                 resource.setrlimit(resource.RLIMIT_AS, (soft, hard))  # restore
+
         return wrapper
+
     return decorator
+
 
 def _sample_peak_rss(proc: psutil.Process, stop: threading.Event, out: list) -> None:
     """Track the high-water RSS of ``proc`` until ``stop`` is set."""
@@ -50,8 +55,9 @@ def _sample_peak_rss(proc: psutil.Process, stop: threading.Event, out: list) -> 
     out[0] = peak
 
 
-def _merge_worker(fn: MergeFn, unmerged: SPMPrediction, args: tuple,
-                  kwargs: dict, queue: mp.Queue) -> None:
+def _merge_worker(
+    fn: MergeFn, unmerged: SPMPrediction, args: tuple, kwargs: dict, queue: mp.Queue
+) -> None:
     """Run one merge in an isolated process and report merged result + memory.
 
     Peak RSS is sampled around the call so the reported figure includes
@@ -99,7 +105,7 @@ class MergingMethod:
     space, so results are directly comparable against the ground truth.
     """
 
-    def __init__(self, name: str, fn: MergeFn,  *args, **kwargs):
+    def __init__(self, name: str, fn: MergeFn, *args, **kwargs):
         self.name = name
         self._fn = fn
         self._args = args
@@ -123,7 +129,8 @@ class MergingMethod:
                 if not worker.is_alive():
                     raise RuntimeError(
                         f"merge worker for '{self.name}' died with exit code "
-                        f"{worker.exitcode} without returning a result")
+                        f"{worker.exitcode} without returning a result"
+                    )
         worker.join()
         if isinstance(payload, Exception):
             raise payload
@@ -136,7 +143,9 @@ class MergingMethod:
 
 def _frame_shape(prediction: SPMPrediction) -> tuple[int, int]:
     if prediction.image_shape is None:
-        raise ValueError("prediction.image_shape (height, width) is required for merging.")
+        raise ValueError(
+            "prediction.image_shape (height, width) is required for merging."
+        )
     return prediction.image_shape
 
 
@@ -151,25 +160,36 @@ def _rasterize(polygon, height: int, width: int) -> np.ndarray:
     return mask
 
 
-def _add_mask_annotation(prediction: SPMPrediction, mask: np.ndarray, name, class_id, confidence) -> None:
+def _add_mask_annotation(
+    prediction: SPMPrediction, mask: np.ndarray, name, class_id, confidence
+) -> None:
     mask = np.ascontiguousarray(mask).astype(np.uint8)
-    contours = binary_mask_to_contours(mask, min_area=1, normalize=False, sort_by_area=True)
+    contours = binary_mask_to_contours(
+        mask, min_area=1, normalize=False, sort_by_area=True
+    )
     if not contours:
         return
     segmentation = [np.asarray(c, dtype=np.float32).reshape(-1, 2) for c in contours]
     prediction.add_annotation(
-        name=name, class_id=int(class_id), confidence=float(confidence),
-        segmentation=segmentation)
+        name=name,
+        class_id=int(class_id),
+        confidence=float(confidence),
+        segmentation=segmentation,
+    )
 
 
 @memory_limit(40)
-def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_only_seam: bool = False) -> tuple[SPMPrediction, float]:
+def merge_spm(
+    unmerged: SPMPrediction,
+    config: SPMConfig = SPMConfig(),
+    merge_only_seam: bool = False,
+) -> tuple[SPMPrediction, float]:
     logger.info(f"Running SPM with config: {config}, merge_only_seam={merge_only_seam}")
     merger = SpatialPolygonMerger(config)
     merger.index(unmerged)
     start_time = time.perf_counter()
     if merge_only_seam:
-        merged =  merger.merge(unmerged.seam_prediction_idxs)
+        merged = merger.merge(unmerged.seam_prediction_idxs)
     else:
         merged = merger.merge()
     merge_time = time.perf_counter() - start_time
@@ -179,7 +199,7 @@ def merge_spm(unmerged: SPMPrediction, config: SPMConfig = SPMConfig(), merge_on
 @memory_limit(40)
 def merge_smm(unmerged: SPMPrediction, **params) -> tuple[SPMPrediction, float]:
     from spatial_mask_merging.smm.smm import SpatialMaskMerger
-    from utils.adapters import PredictionAdapter
+    from benchmark.adapters import PredictionAdapter
 
     logger.info(f"Running SMM with parameters: {params}")
     height, width = _frame_shape(unmerged)
@@ -192,31 +212,52 @@ def merge_smm(unmerged: SPMPrediction, **params) -> tuple[SPMPrediction, float]:
         beta2=params.get("beta2", 0.5),
         beta3=params.get("beta3", 0.2),
         gamma=params.get("gamma", 0.5),
-        lambda_=params.get("lambda_", 0.5)
-        )
+        lambda_=params.get("lambda_", 0.5),
+    )
     start_time = time.perf_counter()
     merged_objects = smm.merge(smm_prediction, image_size_hw=(height, width))
     merge_time = time.perf_counter() - start_time
 
-    result = SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape)
+    result = SPMPrediction(
+        image_path=unmerged.image_path, image_shape=unmerged.image_shape
+    )
     for obj in merged_objects:
         _add_mask_annotation(result, obj["mask"], obj["label"], 0, obj["score"])
     return result, merge_time
 
 
 @memory_limit(40)
-def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.3,
-               match_metric: str = "IOU", merger: str = "NMM") -> tuple[SPMPrediction, float]:
-    from sahi.postprocess.combine import GreedyNMMPostprocess, NMMPostprocess, NMSPostprocess, LSNMSPostprocess
+def merge_sahi(
+    unmerged: SPMPrediction,
+    match_threshold: float = 0.3,
+    match_metric: str = "IOU",
+    merger: str = "NMM",
+) -> tuple[SPMPrediction, float]:
+    from sahi.postprocess.combine import (
+        GreedyNMMPostprocess,
+        NMMPostprocess,
+        NMSPostprocess,
+        LSNMSPostprocess,
+    )
     from sahi.postprocess.backends import set_postprocess_backend
-    from utils.adapters import PredictionAdapter, SAHIPrediction
+    from benchmark.adapters import PredictionAdapter, SAHIPrediction
 
-    logger.info(f"Running SAHI with parameters: match_threshold={match_threshold}, match_metric={match_metric}, merger={merger}")
-    set_postprocess_backend("numpy") # Set postprocess backend to numpy to avoid GPU memory usage during merging
+    logger.info(
+        f"Running SAHI with parameters: match_threshold={match_threshold}, match_metric={match_metric}, merger={merger}"
+    )
+    set_postprocess_backend(
+        "numpy"
+    )  # Set postprocess backend to numpy to avoid GPU memory usage during merging
 
-    postprocessors = {"NMM": NMMPostprocess, "GREEDYNMM": GreedyNMMPostprocess, "NMS": NMSPostprocess, "LSNMS": LSNMSPostprocess}
+    postprocessors = {
+        "NMM": NMMPostprocess,
+        "GREEDYNMM": GreedyNMMPostprocess,
+        "NMS": NMSPostprocess,
+        "LSNMS": LSNMSPostprocess,
+    }
     postprocess = postprocessors[merger.upper()](
-        match_threshold=match_threshold, match_metric=match_metric, class_agnostic=False)
+        match_threshold=match_threshold, match_metric=match_metric, class_agnostic=False
+    )
 
     sahi_prediction = PredictionAdapter(unmerged).sahi
 
@@ -232,15 +273,20 @@ def merge_sahi(unmerged: SPMPrediction, match_threshold: float = 0.3,
 
 
 @memory_limit(40)
-def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
-                      merge: bool = True) -> tuple[SPMPrediction, float]:
+def merge_supervision(
+    unmerged: SPMPrediction, iou_threshold: float = 0.5, merge: bool = True
+) -> tuple[SPMPrediction, float]:
     import supervision as sv
 
     height, width = _frame_shape(unmerged)
     if unmerged.count == 0:
-        return SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape), 0.0
+        return SPMPrediction(
+            image_path=unmerged.image_path, image_shape=unmerged.image_shape
+        ), 0.0
 
-    masks = np.stack([_rasterize(p, height, width).astype(bool) for p in unmerged.polygons])
+    masks = np.stack(
+        [_rasterize(p, height, width).astype(bool) for p in unmerged.polygons]
+    )
     detections = sv.Detections(
         xyxy=np.asarray(unmerged.bboxes, dtype=np.float32),
         mask=masks,
@@ -249,15 +295,32 @@ def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
     )
 
     start_time = time.perf_counter()
-    detections = detections.with_nmm(iou_threshold) if merge else detections.with_nms(iou_threshold)
+    detections = (
+        detections.with_nmm(iou_threshold)
+        if merge
+        else detections.with_nms(iou_threshold)
+    )
     merge_time = time.perf_counter() - start_time
 
-    result = SPMPrediction(image_path=unmerged.image_path, image_shape=unmerged.image_shape)
+    result = SPMPrediction(
+        image_path=unmerged.image_path, image_shape=unmerged.image_shape
+    )
     for i in range(len(detections)):
         class_id = int(detections.class_id[i])
-        name = unmerged.names[unmerged.class_ids.index(class_id)] if class_id in unmerged.class_ids else str(class_id)
-        _add_mask_annotation(result, detections.mask[i].astype(np.uint8), name, class_id, detections.confidence[i])
+        name = (
+            unmerged.names[unmerged.class_ids.index(class_id)]
+            if class_id in unmerged.class_ids
+            else str(class_id)
+        )
+        _add_mask_annotation(
+            result,
+            detections.mask[i].astype(np.uint8),
+            name,
+            class_id,
+            detections.confidence[i],
+        )
     return result, merge_time
+
 
 # smm_params = {
 #         "tau_d":5.0,      # Distance threshold (pixels)
@@ -272,14 +335,14 @@ def merge_supervision(unmerged: SPMPrediction, iou_threshold: float = 0.5,
 
 # Optimized SMM parameters from hyperparameter tuning
 smm_params = {
-  "tau_d": 21.855988093291327,
-  "tau_i": 0.40396342434325805,
-  "rho": 44.6431390422366,
-  "beta1": 0.3406807500462869,
-  "beta2": 0.5791467587819955,
-  "beta3": 0.26279874111556634,
-  "gamma": 0.43312966514646717,
-  "lambda_": 1.0870328415148245
+    "tau_d": 21.855988093291327,
+    "tau_i": 0.40396342434325805,
+    "rho": 44.6431390422366,
+    "beta1": 0.3406807500462869,
+    "beta2": 0.5791467587819955,
+    "beta3": 0.26279874111556634,
+    "gamma": 0.43312966514646717,
+    "lambda_": 1.0870328415148245,
 }
 
 MERGING_METHODS: dict[str, MergingMethod] = {

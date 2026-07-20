@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import rasterio
 import torch
@@ -9,7 +8,10 @@ from spm.core.prediction import SPMPrediction
 from spm.merging.spm import SpatialPolygonMerger
 from spm.config import ModelConfig
 from spm.models.base_model import BaseModel
-from spm.preprocessing.image_processing import binary_mask_to_contours, stream_tiles_by_batch
+from spm.preprocessing.image_processing import (
+    binary_mask_to_contours,
+    stream_tiles_by_batch,
+)
 from spm.core.geometry import effective_overlap, is_overlap_candidate
 from spm.utils.logger import logger
 
@@ -25,7 +27,12 @@ class YOLOModel(BaseModel):
 
     def _process_binary_mask(self, mask: np.ndarray) -> np.ndarray | None:
         contours = binary_mask_to_contours(
-            mask, min_area=5, contour_approx_factor=self.config.contour_approx_factor, normalize=False, sort_by_area=True)
+            mask,
+            min_area=5,
+            contour_approx_factor=self.config.contour_approx_factor,
+            normalize=False,
+            sort_by_area=True,
+        )
 
         if len(contours) == 0:
             return None
@@ -34,25 +41,22 @@ class YOLOModel(BaseModel):
         contour = contours[0]
 
         # Scale polygon points back to original image coordinates
-        contour = np.asarray(contour, dtype=np.float32)
-        if contour.ndim == 1:
-            contour = contour.reshape(-1, 2)
+        contour_arr = np.asarray(contour, dtype=np.float32)
+        if contour_arr.ndim == 1:
+            contour_arr = contour_arr.reshape(-1, 2)
+        contour = contour_arr
 
         # Scale polygon points back to original image size
         scale_x = self.config.tile_size / mask.shape[1]
         scale_y = self.config.tile_size / mask.shape[0]
 
-        processed_mask = contour * \
-            np.array([scale_x, scale_y], dtype=np.float32)
+        processed_mask = contour * np.array([scale_x, scale_y], dtype=np.float32)
 
         return [processed_mask]
 
     def predict(
-            self,
-            image: Path,
-            merge: bool = False,
-            merge_only_seam: bool = False
-            ) -> SPMPrediction:
+        self, image: Path, merge: bool = False, merge_only_seam: bool = False
+    ) -> SPMPrediction:
         """Generates prediction for the given image and returns it as an SPMPrediction object.
 
         Args:
@@ -72,17 +76,25 @@ class YOLOModel(BaseModel):
         seam_prediction_idxs: list[int] = []
 
         with rasterio.open(image) as src:
-
             # Get image height and width for effective overlap calculation
             img_width, img_height = src.width, src.height
-            prediction.image_shape = (img_height, img_width)  # Store image shape in prediction
+            prediction.image_shape = (
+                img_height,
+                img_width,
+            )  # Store image shape in prediction
             logger.info(
-                f"Performing prediction on image: {image} (width: {img_width}, height: {img_height})")
+                f"Performing prediction on image: {image} (width: {img_width}, height: {img_height})"
+            )
 
             prediction_idx = 0
             tile_counter = 0
             # Stream tiles from the image and run inference on each tile
-            for batch, coordinate in stream_tiles_by_batch(src, tile_size=self.config.tile_size, batch_size=self.config.batch_size, overlap=self.config.overlap_pixels):
+            for batch, coordinate in stream_tiles_by_batch(
+                src,
+                tile_size=self.config.tile_size,
+                batch_size=self.config.batch_size,
+                overlap=self.config.overlap_pixels,
+            ):
                 tile_counter += len(batch)
                 with torch.inference_mode():
                     results = self.model(
@@ -90,13 +102,14 @@ class YOLOModel(BaseModel):
                         device=self.config.device,
                         conf=self.config.confidence_threshold,
                         iou=self.config.iou_threshold,
-                        verbose=False
+                        verbose=False,
                     )
 
                 for i, res in enumerate(results):
                     if res.boxes.xyxy.shape[0] == 0:
                         logger.debug(
-                            f"No boxes found in tile {i} at coordinate {coordinate[i]}")
+                            f"No boxes found in tile {i} at coordinate {coordinate[i]}"
+                        )
                         continue
 
                     tile_overlap = effective_overlap(
@@ -110,7 +123,7 @@ class YOLOModel(BaseModel):
 
                     tile_x, tile_y = coordinate[i][1], coordinate[i][0]
 
-                    bboxes = res.boxes.xyxy.cpu().numpy()      # (N, 4)
+                    bboxes = res.boxes.xyxy.cpu().numpy()  # (N, 4)
                     classes = res.boxes.cls.cpu().numpy().astype(int)
                     confidences = res.boxes.conf.cpu().numpy()
                     names = res.names
@@ -124,7 +137,8 @@ class YOLOModel(BaseModel):
                     for j in range(len(bboxes)):
                         if len(bboxes[j]) != 4 or len(masks[j]) < 4:
                             logger.debug(
-                                f"No boxes found in tile {i} at coordinate {coordinate[i]}")
+                                f"No boxes found in tile {i} at coordinate {coordinate[i]}"
+                            )
                             continue
 
                         _cls = int(classes[j])
@@ -138,22 +152,23 @@ class YOLOModel(BaseModel):
                         # Sometimes the binary mask may not yield valid contours, so we skip those cases
                         if _mask is None:
                             logger.debug(
-                                f"No valid contours found in binary mask for tile {i} at coordinate {coordinate[i]}")
+                                f"No valid contours found in binary mask for tile {i} at coordinate {coordinate[i]}"
+                            )
                             continue
-                        
-                        for seg_idx in range(len(_mask)):
 
+                        for seg_idx in range(len(_mask)):
                             # Adjust the mask coordinates to the original image coordinate system
-                            _mask[seg_idx][:, 0] = (_mask[seg_idx][:, 0] + tile_x)
-                            _mask[seg_idx][:, 1] = (_mask[seg_idx][:, 1] + tile_y)
+                            _mask[seg_idx][:, 0] = _mask[seg_idx][:, 0] + tile_x
+                            _mask[seg_idx][:, 1] = _mask[seg_idx][:, 1] + tile_y
 
                         if is_overlap_candidate(
-                                bbox=bboxes[j],
-                                tile_size=self.config.tile_size,
-                                overlap=tile_overlap,
-                                tile_x=tile_x, tile_y=tile_y,
-                                img_width=img_width,
-                                img_height=img_height
+                            bbox=bboxes[j],
+                            tile_size=self.config.tile_size,
+                            overlap=tile_overlap,
+                            tile_x=tile_x,
+                            tile_y=tile_y,
+                            img_width=img_width,
+                            img_height=img_height,
                         ):
                             seam_prediction_idxs.append(prediction_idx)
 
@@ -162,12 +177,12 @@ class YOLOModel(BaseModel):
                             class_id=_cls,
                             confidence=_conf,
                             bbox=_bbox,
-                            segmentation=_mask
+                            segmentation=_mask,
                         )
                         prediction_idx += 1
 
             logger.info(f"Total tiles processed: {tile_counter}")
-            
+
             prediction.seam_prediction_idxs = seam_prediction_idxs  # Store seam prediction indices in the prediction object
 
             if merge:
@@ -187,5 +202,10 @@ class YOLOModel(BaseModel):
         pass
 
     def evaluate(self, data: str, split: str = "val") -> dict:
-        metrics = self.model.val(data=data, device=self.config.device, batch=self.config.batch_size, split=split)
+        metrics = self.model.val(
+            data=data,
+            device=self.config.device,
+            batch=self.config.batch_size,
+            split=split,
+        )
         return metrics

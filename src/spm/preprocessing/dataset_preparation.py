@@ -3,8 +3,8 @@ from ultralytics.data.converter import convert_coco
 from spm.preprocessing.image_processing import tiff_to_png, mask_to_txt
 from spm.utils.logger import logger
 
-def prepare_dataset(input_dir: Path, output_dir: Path) -> None:
 
+def prepare_dataset(input_dir: Path, output_dir: Path) -> None:
     for partition in ["train", "test", "val"]:
         image_dir = input_dir / partition / "image"
         label_dir = input_dir / partition / "label"
@@ -25,15 +25,17 @@ def prepare_dataset(input_dir: Path, output_dir: Path) -> None:
             logger.info(f"Converting {label_path} to txt format at {txt_path}")
             mask_to_txt(label_path, txt_path)
 
+
 def convert_coco_to_yolo(coco_json_path: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     convert_coco(
-        labels_dir=str(coco_json_path), 
-        save_dir=str(output_dir), 
-        use_segments=True, 
-        use_keypoints=False, 
-        cls91to80=False
-        )
+        labels_dir=str(coco_json_path),
+        save_dir=str(output_dir),
+        use_segments=True,
+        use_keypoints=False,
+        cls91to80=False,
+    )
+
 
 if __name__ == "__main__":
     # input_dir = Path("data")

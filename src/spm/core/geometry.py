@@ -1,18 +1,18 @@
-from typing import Union
+from typing import Optional, Union
 
-import numpy as np
 from shapely import MultiPolygon, Polygon
 
 from spm.utils.logger import logger
 
+
 def effective_overlap(
-        tile_x: int,
-        tile_y: int,
-        tile_size: int,
-        overlap: int,
-        img_width: int = None,
-        img_height: int = None,
-        ) -> int:
+    tile_x: int,
+    tile_y: int,
+    tile_size: int,
+    overlap: int,
+    img_width: Optional[int] = None,
+    img_height: Optional[int] = None,
+) -> int:
     """Largest actual tile-to-neighbor overlap for the tile at ``(tile_x, tile_y)``.
 
     Tile streaming clamps the last tile in each axis to fit the image, which makes
@@ -48,14 +48,14 @@ def effective_overlap(
 
 
 def is_overlap_candidate(
-        bbox: tuple[float, float, float, float],
-        tile_x: int,
-        tile_y: int,
-        tile_size: int,
-        overlap: int,
-        img_width: int = None,
-        img_height: int = None,
-        ) -> bool:
+    bbox: tuple[float, float, float, float],
+    tile_x: int,
+    tile_y: int,
+    tile_size: int,
+    overlap: int,
+    img_width: Optional[int] = None,
+    img_height: Optional[int] = None,
+) -> bool:
     """Determines if a bounding box is an overlap candidate.
 
     ``bbox`` must be in tile-local coordinates (as produced by a model run on the
@@ -65,9 +65,9 @@ def is_overlap_candidate(
     """
     x_min, y_min, x_max, y_max = bbox
 
-    near_left   = tile_x != 0 and x_min <= overlap
-    near_top    = tile_y != 0 and y_min <= overlap
-    near_right  = (tile_x + tile_size) != img_width and x_max >= (tile_size - overlap)
+    near_left = tile_x != 0 and x_min <= overlap
+    near_top = tile_y != 0 and y_min <= overlap
+    near_right = (tile_x + tile_size) != img_width and x_max >= (tile_size - overlap)
     near_bottom = (tile_y + tile_size) != img_height and y_max >= (tile_size - overlap)
 
     logger.debug(
@@ -77,7 +77,10 @@ def is_overlap_candidate(
 
     return near_left or near_top or near_right or near_bottom
 
-def xy_mask_to_polygon(mask: list[list[tuple[float, float]]]) -> Union[Polygon, MultiPolygon]:
+
+def xy_mask_to_polygon(
+    mask: list[list[tuple[float, float]]],
+) -> Union[Polygon, MultiPolygon]:
     """Converts a list of (x, y) coordinates representing a mask into a Shapely Polygon."""
     if len(mask) > 1:
         polygon = MultiPolygon([Polygon(m) for m in mask])

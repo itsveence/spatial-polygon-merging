@@ -9,6 +9,7 @@ import geopandas as gpd
 from spm.core.geometry import xy_mask_to_polygon
 from spm.io.raster import get_crs_and_transform, pixel_to_geo
 from spm.utils.logger import logger
+from typing import Optional
 
 
 @dataclass
@@ -22,23 +23,33 @@ class SPMPrediction:
     class_ids: list[int] = field(default_factory=list)
     confidences: list[float] = field(default_factory=list)
 
-    image_path: Path = None
-    image_shape: tuple[int, int] = None  # (height, width)
+    image_path: Optional[Path] = None
+    image_shape: Optional[tuple[int, int]] = None  # (height, width)
 
     seam_prediction_idxs: list[int] = field(default_factory=list)
 
     def add_annotation(
         self,
-        name: str = None,
-        class_id: int = None,
-        confidence: float = None,
-        bbox: tuple[float] = None,
-        segmentation: list[list[tuple[float]]] = None,
-        polygon: Polygon = None,
+        name: Optional[str] = None,
+        class_id: Optional[int] = None,
+        confidence: Optional[float] = None,
+        bbox: Optional[tuple[float, float, float, float]] = None,
+        segmentation: Optional[list[list[tuple[float, float]]]] = None,
+        polygon: Optional[Polygon] = None,
     ):
         if polygon is None:
             # Assuming segmentation is a list of lists of (x, y) tuples
+            if segmentation is None:
+                raise ValueError("Either polygon or segmentation must be provided.")
             polygon = self._to_polygon(segmentation)
+        if segmentation is None:
+            segmentation = []
+        if class_id is None:
+            raise ValueError("class_id must be provided.")
+        if confidence is None:
+            raise ValueError("confidence must be provided.")
+        if name is None:
+            raise ValueError("name must be provided.")
         # TODO: Having both segmentation and polygon is redundant, we should consider only keeping one of them to save memory.
         self.polygons.append(polygon)
         self.segmentations.append(segmentation)
@@ -48,7 +59,7 @@ class SPMPrediction:
         self.confidences.append(confidence)
         self.names.append(name)
 
-    def _to_polygon(self, mask: list[list[tuple[float]]]) -> Polygon:
+    def _to_polygon(self, mask: list[list[tuple[float, float]]]) -> Polygon:
         return xy_mask_to_polygon(mask)
 
     def _get_crs_and_transform(self):
@@ -178,7 +189,10 @@ class SPMPrediction:
         }
 
     def save_to_file(
-        self, format: str = "gpkg", name: str = None, output_dir: Path = None
+        self,
+        format: str = "gpkg",
+        name: Optional[str] = None,
+        output_dir: Optional[Path] = None,
     ) -> None:
         """Save the SPMPrediction as a GeoJSON or GPKG file."""
         format = format.lower()
