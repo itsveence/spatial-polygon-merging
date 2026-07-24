@@ -111,34 +111,42 @@ class MergingMethod:
         self._args = args
         self._kwargs = kwargs
 
-    def merge(self, unmerged: SPMPrediction) -> tuple[SPMPrediction, float, float]:
-        ctx = mp.get_context("spawn")
-        queue = ctx.Queue()
-        worker = ctx.Process(
-            target=_merge_worker,
-            args=(self._fn, unmerged, self._args, self._kwargs, queue),
-        )
-        worker.start()
-        # Poll rather than block: if the child is killed outright (e.g. the
-        # kernel OOM killer), nothing is ever put on the queue.
-        while True:
-            try:
-                payload = queue.get(timeout=1.0)
-                break
-            except mp_queues.Empty:
-                if not worker.is_alive():
-                    raise RuntimeError(
-                        f"merge worker for '{self.name}' died with exit code "
-                        f"{worker.exitcode} without returning a result"
-                    )
-        worker.join()
-        if isinstance(payload, Exception):
-            raise payload
-        merged, merge_time, peak_memory_usage = payload
+    def merge(
+        self, unmerged: SPMPrediction, merge_count: int
+    ) -> tuple[SPMPrediction, list[float], list[float]]:
+        merge_times = []
+        peak_memory_usages = []
+        for i in range(merge_count):
+            logger.info(f"Running merge {i+1}/{merge_count} for method '{self.name}'")
+            ctx = mp.get_context("spawn")
+            queue = ctx.Queue()
+            worker = ctx.Process(
+                target=_merge_worker,
+                args=(self._fn, unmerged, self._args, self._kwargs, queue),
+            )
+            worker.start()
+            # Poll rather than block: if the child is killed outright (e.g. the
+            # kernel OOM killer), nothing is ever put on the queue.
+            while True:
+                try:
+                    payload = queue.get(timeout=1.0)
+                    break
+                except mp_queues.Empty:
+                    if not worker.is_alive():
+                        raise RuntimeError(
+                            f"merge worker for '{self.name}' died with exit code "
+                            f"{worker.exitcode} without returning a result"
+                        )
+            worker.join()
+            if isinstance(payload, Exception):
+                raise payload
+            merged, merge_time, peak_memory_usage = payload
+            merge_times.append(merge_time)
+            peak_memory_usages.append(peak_memory_usage)
 
         merged.image_path = unmerged.image_path
         merged.image_shape = unmerged.image_shape
-        return merged, merge_time, peak_memory_usage
+        return merged, merge_times, peak_memory_usages
 
 
 def _frame_shape(prediction: SPMPrediction) -> tuple[int, int]:
@@ -183,15 +191,16 @@ def merge_spm(
     unmerged: SPMPrediction,
     config: SPMConfig = SPMConfig(),
     merge_only_seam: bool = False,
+    score_agg: str = "weighted_mean",
 ) -> tuple[SPMPrediction, float]:
     logger.info(f"Running SPM with config: {config}, merge_only_seam={merge_only_seam}")
     merger = SpatialPolygonMerger(config)
     merger.index(unmerged)
     start_time = time.perf_counter()
     if merge_only_seam:
-        merged = merger.merge(unmerged.seam_prediction_idxs)
+        merged = merger.merge(unmerged.seam_prediction_idxs, score_agg=score_agg)
     else:
-        merged = merger.merge()
+        merged = merger.merge(score_agg=score_agg)
     merge_time = time.perf_counter() - start_time
     return merged, merge_time
 
@@ -346,8 +355,12 @@ smm_params = {
 }
 
 MERGING_METHODS: dict[str, MergingMethod] = {
-    "spm_seam_only": MergingMethod("spm_seam_only", merge_spm, merge_only_seam=True),
-    "spm_global": MergingMethod("spm_global", merge_spm, merge_only_seam=False),
+    "spm_seam_only": MergingMethod(
+        "spm_seam_only", merge_spm, merge_only_seam=True, score_agg="weighted_mean"
+    ),
+    "spm_global": MergingMethod(
+        "spm_global", merge_spm, merge_only_seam=False, score_agg="weighted_mean"
+    ),
     "sahi_nms": MergingMethod("sahi_nms", merge_sahi, merger="NMS"),
     "sahi_nmm": MergingMethod("sahi_nmm", merge_sahi, merger="NMM"),
     "sahi_greedy_nmm": MergingMethod("sahi_greedy_nmm", merge_sahi, merger="GREEDYNMM"),

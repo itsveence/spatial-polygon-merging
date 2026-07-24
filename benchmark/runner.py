@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict
 from pathlib import Path
+from statistics import mean, pstdev
 
 from benchmark.eval import MergeMetrics, evaluate_prediction
 from benchmark.methods import MERGING_METHODS, MergingMethod
@@ -18,6 +19,7 @@ def benchmark_test_set(
     iou_threshold: float = 0.5,
     output_csv: str | Path | None = None,
     crop_limit: int | None = None,
+    merge_count: int = 5,
 ) -> list[dict]:
     """Evaluate every merging method on every crop of a generated test set.
 
@@ -49,20 +51,29 @@ def benchmark_test_set(
         for method in methods:
             try:
                 pred_output_dir = Path("benchmark_output") / crop_dir.name / method.name
-                merged, merge_time, peak_memory_usage = method.merge(unmerged)
+                merged, merge_times, peak_memory_usages = method.merge(
+                    unmerged, merge_count
+                )
                 merged.save_to_file(output_dir=pred_output_dir)
                 metrics = evaluate_prediction(merged, label_path, iou_threshold)
             except Exception as exc:
                 logger.error(f"{method.name} failed on {crop_dir.name}: {exc}")
                 continue
 
+            merge_time_data = {
+                f"merge_time_{i+1}": mt for i, mt in enumerate(merge_times)
+            }
+            peak_memory_usage_data = {
+                f"peak_memory_usage_{i+1}": pmu
+                for i, pmu in enumerate(peak_memory_usages)
+            }
             rows.append(
                 {
                     "crop": crop_dir.name,
                     "crop_size": crop_size,
                     "method": method.name,
-                    "merge_time": merge_time,
-                    "peak_memory_usage": peak_memory_usage,
+                    **merge_time_data,
+                    **peak_memory_usage_data,
                     **asdict(metrics),
                 }
             )
@@ -70,7 +81,7 @@ def benchmark_test_set(
                 f"{crop_dir.name} / {method.name}: "
                 f"mAP={metrics.mAP:.3f} P={metrics.precision:.3f} "
                 f"R={metrics.recall:.3f} F1={metrics.f1:.3f} "
-                f"merge_time={merge_time:.3f}s peak_memory_usage={peak_memory_usage:.3f}MiB"
+                f"merge_time={mean(merge_times):.3f}s peak_memory_usage={mean(peak_memory_usages):.3f}MiB"
             )
 
     if output_csv and rows:
@@ -79,7 +90,12 @@ def benchmark_test_set(
 
 
 def summarize(rows: list[dict]) -> list[dict]:
-    """Average each metric per (crop_size, method) across crops."""
+    """Summarise each metric per (crop_size, method) across crops.
+
+    For every metric the mean, (population) standard deviation, minimum and maximum
+    across the group's crops are stored as ``<key>``, ``<key>_std``, ``<key>_min``
+    and ``<key>_max`` respectively.
+    """
     metric_keys = [
         k for k in MergeMetrics.__annotations__ if k not in ("num_gt", "num_pred")
     ]
@@ -91,7 +107,11 @@ def summarize(rows: list[dict]) -> list[dict]:
     for (crop_size, method), group in sorted(groups.items()):
         entry = {"crop_size": crop_size, "method": method, "num_crops": len(group)}
         for key in metric_keys:
-            entry[key] = sum(r[key] for r in group) / len(group)
+            values = [r[key] for r in group]
+            entry[key] = mean(values)
+            entry[f"{key}_std"] = pstdev(values)
+            entry[f"{key}_min"] = min(values)
+            entry[f"{key}_max"] = max(values)
         summary.append(entry)
     return summary
 
