@@ -73,6 +73,11 @@ def _merge_worker(
     hundreds of MiB of host memory into the measurement. This must run before
     torch is first imported (lazily, inside the merge functions).
     """
+    try:
+        os.sched_setaffinity(0, {0})  # Pin the child to one CPU core.
+    except (AttributeError, OSError):
+        pass  # non-Linux or restricted; the crash guard is best-effort
+
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     proc = psutil.Process()
