@@ -36,7 +36,10 @@ from spm.config import ModelConfig
     help="Path to output CSV file for results",
 )
 @click.option(
-    "--merge-count", type=int, default=5, help="Number of top detections to merge"
+    "--merge-count",
+    type=int,
+    default=5,
+    help="Number of times to repeat each merge, for averaging time and memory",
 )
 @click.option(
     "--crop-limit",

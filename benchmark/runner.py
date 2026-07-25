@@ -25,7 +25,7 @@ def benchmark_test_set(
 
     Walks ``test_set_dir`` for ``crop_*/image.tif`` + ``labels.gpkg`` pairs, runs the
     YOLO tiled inference once per crop, applies each merging method to that shared set
-    of raw detections, and scores the result with pycocotools.
+    of raw detections, and scores the result with COCO-style polygon-IoU metrics.
 
     Returns one row per (crop, method); writes the same rows to ``output_csv`` if given.
     """
