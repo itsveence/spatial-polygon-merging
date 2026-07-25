@@ -92,17 +92,7 @@ class SpatialPolygonMerger:
         # anchor = self.annotations.polygons[poly_idx]
         neighbors_to_merge = {poly_idx}
         queue: deque[tuple[int, int]] = deque()
-
-        # Base case: find direct neighbors of the anchor polygon
-        for cand_idx in self._query(poly_idx):
-            if cand_idx == poly_idx:
-                continue
-            if (
-                self.annotations.class_ids[poly_idx]
-                == self.annotations.class_ids[cand_idx]
-            ):
-                neighbors_to_merge.add(cand_idx)
-                queue.append((cand_idx, 1))
+        queue.append((poly_idx, 0))
 
         # Transitive: each new merge increments depth from its parent
         while queue:
