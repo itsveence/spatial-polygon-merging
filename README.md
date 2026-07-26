@@ -105,22 +105,21 @@ model = YOLOModel(ModelConfig(model_path="best.pt", tile_size=1500, overlap=0.1)
 unmerged = model.predict("scene.tif", merge=False)
 
 # merge in polygon space
-merger = SpatialPolygonMerger(SPMConfig(tau_dist=1.0, rho_chain=5))
+merger = SpatialPolygonMerger(SPMConfig(tau_dist=1.0, rho_chain=5, score_agg="weighted_mean"))
 merger.index(unmerged)
 merged = merger.merge(unmerged.seam_prediction_idxs)   # or merger.merge() to seed globally
 
 merged.save_to_file(format="gpkg", output_dir="output/")
 ```
 
-`SPMConfig` exposes the two merge parameters: `tau_dist`, the proximity threshold in pixels
-within which two footprints are associated, and `rho_chain`, the maximum depth of transitive
-chaining from a seed.
+`SPMConfig` exposes the merge parameters: `tau_dist`, the proximity threshold in pixels within
+which two footprints are associated; `rho_chain`, the maximum depth of transitive chaining from
+a seed; and `score_agg`, which decides the confidence carried by a fused instance.
 
-`merge()` also takes `score_agg`, which decides the confidence carried by a fused instance:
-`"weighted_mean"` (the default, each fragment's score weighted by its polygon area), `"mean"`,
-`"max"` or `"min"`. Because the fragments of one object are usually of very unequal size, the
-area weighting keeps a small seam sliver with a poor score from dragging down the confidence of
-the instance it belongs to.
+`score_agg` is one of `"weighted_mean"` (the default, each fragment's score weighted by its
+polygon area), `"mean"`, `"max"` or `"min"`. Because the fragments of one object are usually of
+very unequal size, the area weighting keeps a small seam sliver with a poor score from dragging
+down the confidence of the instance it belongs to.
 
 ## Benchmarking
 
