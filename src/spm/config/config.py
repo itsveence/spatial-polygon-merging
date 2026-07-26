@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -22,6 +23,11 @@ class ModelConfig:
     contour_approx_factor: float = 0.01  # Factor for approximating contours
 
 
+ScoreAgg = Literal[
+    "weighted_mean", "max", "mean", "min"
+]  # Type for score aggregation methods
+
+
 @dataclass
 class SPMConfig:
     """Configuration for the Spatial Polygon Merging (SPM) algorithm."""
@@ -30,3 +36,6 @@ class SPMConfig:
         1.0  # Distance around geometry within which to query the STRtree for neighbors
     )
     rho_chain: int = 5  # Heuristic threshold to prevent excessive chaining of merges
+    score_agg: ScoreAgg = (
+        "weighted_mean"  # Method for aggregating scores of merged polygons
+    )

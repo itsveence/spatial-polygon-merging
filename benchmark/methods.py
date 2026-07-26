@@ -196,16 +196,15 @@ def merge_spm(
     unmerged: SPMPrediction,
     config: SPMConfig = SPMConfig(),
     merge_only_seam: bool = False,
-    score_agg: str = "weighted_mean",
 ) -> tuple[SPMPrediction, float]:
     logger.info(f"Running SPM with config: {config}, merge_only_seam={merge_only_seam}")
     merger = SpatialPolygonMerger(config)
     merger.index(unmerged)
     start_time = time.perf_counter()
     if merge_only_seam:
-        merged = merger.merge(unmerged.seam_prediction_idxs, score_agg=score_agg)
+        merged = merger.merge(unmerged.seam_prediction_idxs)
     else:
-        merged = merger.merge(score_agg=score_agg)
+        merged = merger.merge()
     merge_time = time.perf_counter() - start_time
     return merged, merge_time
 
@@ -309,12 +308,18 @@ smm_params = {
     "lambda_": 1.0870328415148245,
 }
 
+spm_config = SPMConfig(
+    tau_dist=1.0,
+    rho_chain=5,
+    score_agg="weighted_mean",
+)
+
 MERGING_METHODS: dict[str, MergingMethod] = {
     "spm_seam_only": MergingMethod(
-        "spm_seam_only", merge_spm, merge_only_seam=True, score_agg="weighted_mean"
+        "spm_seam_only", merge_spm, merge_only_seam=True, config=spm_config
     ),
     "spm_global": MergingMethod(
-        "spm_global", merge_spm, merge_only_seam=False, score_agg="weighted_mean"
+        "spm_global", merge_spm, merge_only_seam=False, config=spm_config
     ),
     "sahi_nms": MergingMethod("sahi_nms", merge_sahi, merger="NMS"),
     "sahi_nmm": MergingMethod("sahi_nmm", merge_sahi, merger="NMM"),

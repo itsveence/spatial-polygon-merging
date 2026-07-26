@@ -110,14 +110,11 @@ class SpatialPolygonMerger:
 
         return neighbors_to_merge
 
-    def merge(
-        self, poly_idxs: Optional[list[int]] = None, score_agg: str = "weighted_mean"
-    ) -> SPMPrediction:
+    def merge(self, poly_idxs: Optional[list[int]] = None) -> SPMPrediction:
         """
         Merges polygons based on distance thresholds.
         Args:
             poly_idxs (list[int], optional): Optional list of polygon indices to consider for merging. If None, considers all polygons.
-            score_agg (str): The aggregation method for combining confidence scores of merged polygons.
         Returns:
             SPMPrediction: The merged annotations.
         """
@@ -174,23 +171,25 @@ class SpatialPolygonMerger:
             if not merged_polygon:
                 continue
 
-            if score_agg == "mean":
+            if self.config.score_agg == "mean":
                 merged_confidence = score_sum / score_count
-            elif score_agg == "weighted_mean":
+            elif self.config.score_agg == "weighted_mean":
                 merged_confidence = sum(
                     self.annotations.confidences[i] * self.annotations.polygons[i].area
                     for i in polygons_to_merge
                 ) / sum(self.annotations.polygons[i].area for i in polygons_to_merge)
-            elif score_agg == "max":
+            elif self.config.score_agg == "max":
                 merged_confidence = max(
                     self.annotations.confidences[i] for i in polygons_to_merge
                 )
-            elif score_agg == "min":
+            elif self.config.score_agg == "min":
                 merged_confidence = min(
                     self.annotations.confidences[i] for i in polygons_to_merge
                 )
             else:
-                raise ValueError(f"Unsupported score aggregation method: {score_agg}")
+                raise ValueError(
+                    f"Unsupported score aggregation method: {self.config.score_agg}"
+                )
 
             merged_annotations.add_annotation(
                 polygon=merged_polygon,
