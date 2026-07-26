@@ -286,56 +286,6 @@ def merge_sahi(
     return result, merge_time
 
 
-@memory_limit(40)
-def merge_supervision(
-    unmerged: SPMPrediction, iou_threshold: float = 0.5, merge: bool = True
-) -> tuple[SPMPrediction, float]:
-    import supervision as sv
-
-    height, width = _frame_shape(unmerged)
-    if unmerged.count == 0:
-        return SPMPrediction(
-            image_path=unmerged.image_path, image_shape=unmerged.image_shape
-        ), 0.0
-
-    masks = np.stack(
-        [_rasterize(p, height, width).astype(bool) for p in unmerged.polygons]
-    )
-    detections = sv.Detections(
-        xyxy=np.asarray(unmerged.bboxes, dtype=np.float32),
-        mask=masks,
-        confidence=np.asarray(unmerged.confidences, dtype=np.float32),
-        class_id=np.asarray(unmerged.class_ids, dtype=int),
-    )
-
-    start_time = time.perf_counter()
-    detections = (
-        detections.with_nmm(iou_threshold)
-        if merge
-        else detections.with_nms(iou_threshold)
-    )
-    merge_time = time.perf_counter() - start_time
-
-    result = SPMPrediction(
-        image_path=unmerged.image_path, image_shape=unmerged.image_shape
-    )
-    for i in range(len(detections)):
-        class_id = int(detections.class_id[i])
-        name = (
-            unmerged.names[unmerged.class_ids.index(class_id)]
-            if class_id in unmerged.class_ids
-            else str(class_id)
-        )
-        _add_mask_annotation(
-            result,
-            detections.mask[i].astype(np.uint8),
-            name,
-            class_id,
-            detections.confidence[i],
-        )
-    return result, merge_time
-
-
 # smm_params = {
 #         "tau_d":5.0,      # Distance threshold (pixels)
 #         "tau_i":0.5,       # IoU threshold
