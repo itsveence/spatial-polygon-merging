@@ -192,8 +192,7 @@ Runtime settings are read from a `.env` file at the repository root: `LOGGING_LE
 ## Dataset
 
 Experiments use the [WHU Building Dataset](http://gpcv.whu.edu.cn/data/building_dataset.html)
-(Ji, Wei, & Lu, 2019): aerial imagery of Christchurch, New Zealand at 0.3 m ground sample
-distance. Raster mask annotations are converted to the single-class YOLO segmentation label
+(Ji, Wei, & Lu, 2019): aerial imagery of Christchurch, New Zealand. Raster mask annotations are converted to the single-class YOLO segmentation label
 format for training; the hold-out imagery is cut into fixed-size crops for the merge benchmark.
 
 ## License
