@@ -61,12 +61,10 @@ for a quick run.
 | `sahi_lsnms` | SAHI `LSNMSPostprocess` |
 | `smm` | Spatial Mask Merging (submodule), at the Optuna-tuned parameters in `methods.py` |
 
-`merge_supervision` (supervision's `with_nms` / `with_nmm`) is also implemented in `methods.py`
-but is not registered in `MERGING_METHODS`; add a `MergingMethod` entry to include it.
 
 ## Metrics
 
-`mAP`, `mAP50` and `mAP75` follow the COCO AP protocol over the 0.50–0.95 IoU sweep with 101
+`mAP`, `mAP50` and `mAP75` follow the COCO AP protocol over the 0.50-0.95 IoU sweep with 101
 recall thresholds. Precision, recall and F1 come from greedy score-ordered matching at the
 chosen IoU (default 0.5). All IoUs are computed on the polygon geometries — intersection area
 over union area — with an STRtree over the ground truth pruning the pairs that need an exact
