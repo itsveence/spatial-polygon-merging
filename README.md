@@ -49,7 +49,7 @@ The project is managed with [uv](https://docs.astral.sh/uv/). On Linux, PyTorch 
 the CUDA 12.4 index; on macOS, from the CPU index (see `pyproject.toml`).
 
 ```bash
-git clone --recurse-submodules git@github.com:itsveence/spatial_polygon_merging.git
+git clone --recurse-submodules git@github.com:itsveence/spatial-polygon-merging.git
 cd spatial_polygon_merging
 uv sync
 ```
